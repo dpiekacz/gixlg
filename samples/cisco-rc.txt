@@ -1,0 +1,11 @@
+neighbor 198.51.100.255 remote-as 12345
+neighbor 198.51.100.255 description GIXLG
+neighbor 198.51.100.255 ebgp-multihop 64
+neighbor 198.51.100.255 update-source Loopback0
+address-family ipv4
+ neighbor 198.51.100.255 activate
+ neighbor 198.51.100.255 send-community
+ neighbor 198.51.100.255 next-hop-unchanged
+ neighbor 198.51.100.255 send-label
+ neighbor 198.51.100.255 prefix-list deny-all in
+exit-address-family

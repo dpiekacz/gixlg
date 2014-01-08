@@ -1,0 +1,36 @@
+Version explained:
+ major : codebase
+ minor : increase on new features
+ bug   : increase on bug fixes
+
+Version 0.4.x -
+ * Adding a table iptoasn which contains only unique prefixes
+ * Changing collector script to use by default mysql socket instead of tcp connection
+
+Version 0.4.0 - 30th of April 2013
+ * Uncommenting line mydb.ping(True), what should help when collector crashes when connection to database has been closed by mysql
+ * Adding columns "length", "originas" to the table "prefixes"
+ * Changing type of tables from InnoDB to MyISAM, because indexes for spatial extensions are only supported by MyISAM
+ * Adding a polygon type column "ip_poly" which will be used instead of "$int_ip>=`ip_start` && $int_ip<=`ip_end`" statement what should massively speed up lookup time
+
+Version 0.3.2 - 7th of September 2012
+ * Fixing bug with processing nexthop for IPv6 prefixes when working in route collector mode
+ * Fixing problem with order of ASNs when GIXLG is installed in an Internet Exchange
+
+Version 0.3.1 - 6th of September 2012
+ * Fixing issue with iPad and JavaScript
+ * Fixing HTML code to be XHTML compliant
+ * Index changes for tables prefixes and nexthops
+
+Version 0.3.0 - 30th of August 2012
+ * Code cleaning + creating directory structure
+ * Initial export to Google code
+
+Version 0.2.0 - 10th of February 2012
+ * Shows destination node/IXP based on next hop information
+
+Version 0.1.0 - 14th of January 2012
+ * First version working directly from MySQL database
+
+Version 0.0.1 - February 2010
+ * First version based on MRLG project

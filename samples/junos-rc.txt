@@ -1,0 +1,35 @@
+group gixlg-v4 {
+    type external;
+    multihop {
+        no-nexthop-change;
+    }
+    local-address 198.51.100.1;
+    passive;
+    advertise-peer-as;
+    import deny-all;
+    peer-as 12345;
+    include-mp-next-hop;
+    neighbor 198.51.100.255 {
+        family inet {
+            unicast;
+        }
+    }
+}
+
+group gixlg-v6 {
+    type external;
+    multihop {
+        no-nexthop-change;
+    }
+    local-address 2001:db8::ffff;
+    passive;
+    advertise-peer-as;
+    import deny-all;
+    peer-as 12345;
+    include-mp-next-hop;
+    neighbor 2001:db8::1 {
+        family inet6 {
+            unicast;
+        }
+    }
+}
