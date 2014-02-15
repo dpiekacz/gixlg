@@ -29,7 +29,7 @@
 </thead>
 <tfoot>
 <tr>
-<td colspan="2"><em><a href="http://code.google.com/p/gixlg/">GIX looking glass</a> - Copyright &copy; Daniel Piekacz</em></td>
+<td colspan="2"><em><a href="https://github.com/dpiekacz/gixlg">GIX looking glass</a> - Copyright &copy; Daniel Piekacz</em></td>
 </tr>
 </tfoot>
 <tbody>

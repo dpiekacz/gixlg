@@ -1,297 +1,423 @@
 #!/usr/bin/env python
 """
 Created by Daniel Piekacz on 2012-01-14.
-Last update on 2013-05-03.
-Copyright (c) 2013 Daniel Piekacz. All rights reserved.
-Copyright (c) 2013 Thomas Mangin. All rights reserved.
+Last update on 2014-02-15.
+Copyright (c) 2014 Daniel Piekacz. All rights reserved.
 Project website: gix.net.pl, e-mail: daniel@piekacz.tel
 """
-
-import sys
-import os
-import time
-import syslog
-import string
-import socket
+import os, sys, time, socket
+import json
 import MySQLdb
+from threading import Thread, RLock
+
+config = {}
+config["mysql_host"] = ""
+config["mysql_db"] = "gixlg"
+config["mysql_user"] = "gixlg"
+config["mysql_pass"] = "gixlg"
+config["mysql_sock"] = "/tmp/mysqld.sock"
+config["mysql_timeout"] = 0
+config["mysql_ping"] = True
+
+config["ip2asn"] = False
+
+config["log_file"] = "./collector.txt"
+config["debug"] = False
+
+##
+## main code - do not modify the code below the line
+##
+Running = False
 
 version = {
-    True : socket.AF_INET,
-    False : socket.AF_INET6,
+	True : socket.AF_INET,
+	False : socket.AF_INET6,
 }
 
-neighbor_state = { }
+def iptoint(ip):
+	packed = socket.inet_pton(version['.' in ip], ip)
+	value = 0L
+	for byte in packed:
+		value <<= 8
+		value += ord(byte)
+	return value
 
-def iptoint (ip):
-    packed = socket.inet_pton(version['.' in ip], ip)
-    value = 0L
-    for byte in packed:
-	value <<= 8
-	value += ord(byte)
-    return value
+def GIXcollector(mydb, cursor):
+	global Running
 
-def prefixes ():
-	line = ''
-
-	# When the parent dies we are seeing continual newlines, so we only access so many before stopping
-	counter = 0
-
-	# currently supported prefix keys
-	prefix_keys = ['neighbor','local-ip','family-allowed','route','label','next-hop','med','local-preference','community','extended-community','origin','as-path','aggregator']
-
-	while True:
+	while Running:
 		try:
-			# As any Keyboard Interrupt will force us back here, we are only reading line if we could yield the prefix to the parent un-interrupted.
-			if not line:
-				line = sys.stdin.readline().strip()
+			line = sys.stdin.readline().strip()
 			if line == "":
 				counter += 1
-				if counter > 100:
-					raise StopIteration()
+				if counter > 1000:
+					break
 				continue
 			counter = 0
 
-			if line == 'shutdown':
-				raise StopIteration()
+			if config["debug"]:
+				sys.stdout.write("EXABGP: " + line + "\n")
 
-			prefix = dict(zip(prefix_keys,['',]*len(prefix_keys)))
-			prefix['time'] = msgtime = time.strftime('%Y-%m-%d %H:%M:%S',time.localtime())
+			prefix_json = json.loads(line)
+			prefix_keys = prefix_json.keys()
 
-			tokens = line.split(' ')
-			#syslog.syslog(syslog.LOG_ALERT, '%s' % (line))
+			prefix = {}
+			prefix["time"] = time.strftime("%Y-%m-%d %H:%M:%S",time.localtime())
 
-			while len(tokens) >= 2:
-				key = tokens.pop(0)
-				if key in ('announced','withdrawn'):
-					prefix['state'] = key
-					key = tokens.pop(0)
-					value = tokens.pop(0)
-				elif key == 'down':
-					prefix['state'] = 'down'
-					break
-				elif key == 'atomic-aggregate':
-					prefix['atomic-aggregate'] = key
-					continue
-				elif key == 'update':
-					value = tokens.pop(0)
-					prefix['state'] = key + " " + value
-					continue
-				elif key in prefix_keys:
-					value = tokens.pop(0)
+			# check update received from exabgp
+			if "exabgp" in prefix_keys:
+
+				# check if this is neighbor status change or prefix update
+				if "neighbor" in prefix_keys:
+					prefix_neighbor_keys = prefix_json["neighbor"].keys()
+
+					# neighbor status change: connected, up or down
+					if "state" in prefix_neighbor_keys and "ip" in prefix_neighbor_keys:
+						prefix["state"] = prefix_json["neighbor"]["state"]
+						prefix["neighbor"] = prefix_json["neighbor"]["ip"]
+
+					# prefix update
+					if "update" in prefix_neighbor_keys and "ip" in prefix_neighbor_keys:
+						prefix["neighbor"] = prefix_json["neighbor"]["ip"]
+						prefix_neighbor_update_keys = prefix_json["neighbor"]["update"].keys()
+
+						if "." in prefix["neighbor"]:
+							prefix["ip_type"] = 4
+						else:
+							prefix["ip_type"] = 6
+
+						prefix["route"] = {}
+						prefix["subnet"] = {}
+						prefix["ip_start"] = {}
+						prefix["ip_end"] = {}
+						prefix["poly"] = {}
+
+						# prefix withdrawal
+						if "withdraw" in prefix_neighbor_update_keys:
+							prefix["state"] = "withdraw"
+							prefix_neighbor_update_withdraw_keys = prefix_json["neighbor"]["update"]["withdraw"].keys()
+							family = prefix_neighbor_update_withdraw_keys[0]
+
+							i = 0
+							for route in prefix_json["neighbor"]["update"]["withdraw"][family].keys():
+								prefix["route"][i] = route
+								i += 1
+
+						# prefix announcement
+						elif "announce" in prefix_neighbor_update_keys:
+							prefix["state"] = "announce"
+							prefix_neighbor_update_announce_keys = prefix_json["neighbor"]["update"]["announce"].keys()
+							prefix["next-hop"] = prefix_neighbor_update_announce_keys[0]
+
+							i = 0
+							for route in prefix_json["neighbor"]["update"]["announce"][prefix["next-hop"]].keys():
+								prefix["route"][i] = route
+
+								x = route.find("/")
+
+								prefix["subnet"][i] = int(route[x+1:])
+								prefix["ip_start"][i] = iptoint(route[:x])
+
+								if prefix["ip_type"] == 4:
+									prefix["ip_end"][i] = prefix["ip_start"][i] + (2**(32 - prefix["subnet"][i])) - 1
+								else:
+									prefix["ip_end"][i] = prefix["ip_start"][i] + (2**(128 - prefix["subnet"][i])) - 1
+								prefix["poly"][i] = "GEOMFROMWKB(POLYGON(LINESTRING(POINT({0}, -1), POINT({1}, -1), POINT({2}, 1), POINT({3}, 1), POINT({4}, -1))))".format(prefix["ip_start"][i], prefix["ip_end"][i], prefix["ip_end"][i], prefix["ip_start"][i], prefix["ip_start"][i])
+
+								i += 1
+
+							if "attribute" in prefix_neighbor_update_keys:
+								prefix_neighbor_update_attribute_keys = prefix_json["neighbor"]["update"]["attribute"].keys()
+
+								if "origin" in prefix_neighbor_update_attribute_keys:
+									prefix["origin"] = prefix_json["neighbor"]["update"]["attribute"]["origin"]
+								else:
+									prefix["origin"] = ""
+
+								if "atomic-aggregate" in prefix_neighbor_update_attribute_keys:
+									prefix["atomic-aggregate"] = prefix_json["neighbor"]["update"]["attribute"]["atomic-aggregate"]
+								else:
+									prefix["atomic-aggregate"] = ""
+
+								if "aggregator" in prefix_neighbor_update_attribute_keys:
+									prefix["aggregator"] = prefix_json["neighbor"]["update"]["attribute"]["aggregator"]
+								else:
+									prefix["aggregator"] = ""
+
+								if "community" in prefix_neighbor_update_attribute_keys:
+									community_tmp = prefix_json["neighbor"]["update"]["attribute"]["community"]
+									prefix["community"] = ""
+
+									for i in range(0, len(community_tmp)):
+										prefix["community"] += str(community_tmp[i][0]) + ":" + str(community_tmp[i][1])
+
+										if i < (len(community_tmp) - 1):
+											prefix["community"] += " "
+								else:
+									prefix["community"] = ""
+
+								if "extended-community" in prefix_neighbor_update_attribute_keys:
+									extended_community_tmp = prefix_json["neighbor"]["update"]["attribute"]["extended-community"]
+									prefix["extended-community"] = ""
+
+									for i in range(0, len(extended_community_tmp)):
+										if (extended_community_tmp[i][0] == 0x03) or (extended_community_tmp[i][0] == 0x43):
+											prefix["extended-community"] += "rte-type:"
+											prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
+											prefix["extended-community"] += ":" + str(extended_community_tmp[i][6]) + ":" + str(extended_community_tmp[i][7])
+
+										elif ((extended_community_tmp[i][0] == 0x00) or (extended_community_tmp[i][0] == 0x01) or (extended_community_tmp[i][0] == 0x02)) and (extended_community_tmp[i][1] == 0x02):
+											prefix["extended-community"] += "target:"
+											if (extended_community_tmp[i][0] == 0x00):
+												prefix["extended-community"] += str(extended_community_tmp[i][2] * 256 + extended_community_tmp[i][3])
+												prefix["extended-community"] += ":" + str(extended_community_tmp[i][4] * 16777216 + extended_community_tmp[i][5] * 65536 + extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+											elif (extended_community_tmp[i][0] == 0x01):
+												prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
+												prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+											else:
+												prefix["extended-community"] += str(extended_community_tmp[i][2] * 16777216 + extended_community_tmp[i][3] * 65536 + extended_community_tmp[i][4] * 256 + extended_community_tmp[i][5]) + "L"
+												prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+
+										elif ((extended_community_tmp[i][0] == 0x00) or (extended_community_tmp[i][0] == 0x01) or (extended_community_tmp[i][0] == 0x02)) and (extended_community_tmp[i][1] == 0x03):
+											prefix["extended-community"] += "origin:"
+											if (extended_community_tmp[i][0] == 0x00):
+												prefix["extended-community"] += str(extended_community_tmp[i][2] * 256 + extended_community_tmp[i][3])
+												prefix["extended-community"] += ":" + str(extended_community_tmp[i][4] * 16777216 + extended_community_tmp[i][5] * 65536 + extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+											elif (extended_community_tmp[i][0] == 0x01):
+												prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
+												prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+											else:
+												prefix["extended-community"] += str(extended_community_tmp[i][2] * 16777216 + extended_community_tmp[i][3] * 65536 + extended_community_tmp[i][4] * 256 + extended_community_tmp[i][5]) + "L"
+												prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+
+										if i < (len(extended_community_tmp) - 1):
+											prefix["extended-community"] += " "
+								else:
+									prefix["extended-community"] = ""
+
+								if "as-path" in prefix_neighbor_update_attribute_keys:
+									as_path_tmp = prefix_json["neighbor"]["update"]["attribute"]["as-path"]
+									prefix["as-path"] = ""
+
+									for i in range(0, len(as_path_tmp)):
+										prefix["as-path"] += str(as_path_tmp[i])
+
+										if i < (len(as_path_tmp) - 1):
+											prefix["as-path"] += " "
+										else:
+											prefix["originas"] = str(as_path_tmp[i])
+								else:
+									prefix["as-path"] = ""
+
+								if "as-set" in prefix_neighbor_update_attribute_keys:
+									as_set_tmp = prefix_json["neighbor"]["update"]["attribute"]["as-set"]
+									prefix["as-set"] = ""
+
+									for i in range(0, len(as_set_tmp)):
+										prefix["as-set"] += str(as_set_tmp[i])
+
+										if i < (len(as_set_tmp) - 1):
+											prefix["as-set"] += " "
+								else:
+									prefix["as-set"] = ""
+
+								if "med" in prefix_neighbor_update_attribute_keys:
+									prefix["med"] = prefix_json["neighbor"]["update"]["attribute"]["med"]
+								else:
+									prefix["med"] = ""
+						else:
+							# if not announce and not withdraw then state is unknown
+							prefix["state"] = "unknown"
+				# process shutdown notification
+				elif "notification" in prefix_keys:
+					prefix["state"] = "shutdown"
+				# if not neighbor update and not exabgp notification then state is unknown
 				else:
-					syslog.syslog(syslog.LOG_ALERT, 'unknown prefix attributes %s' % (key))
-
-				if value == '[':
-					values = []
-					while tokens:
-						value = tokens.pop(0)
-						if value == '(':
-							value = tokens.pop(0)
-							while value != ')':
-								value = tokens.pop(0)
-							continue
-							value = tokens.pop(0)
-						if value == ']': break
-						values.append(value)
-					if value != ']':
-						syslog.syslog(syslog.LOG_ALERT, 'problem with parsing the values of attribute %s' % (key))
-						line = ''
-						continue
-					value = ' '.join(values)
-
-				if value == '(':
-					values = []
-					while tokens:
-						value = tokens.pop(0)
-						if value == ')': break
-						values.append(value)
-					if value != ')':
-						syslog.syslog(syslog.LOG_ALERT, 'problem with parsing the values of attribute %s' % (key))
-						line = ''
-						continue
-					value = ' '.join(values)
-
-				prefix[key] = value
-
-			if tokens:
-				key = tokens.pop(0)
-				if key in ('up','connected'):
-					prefix['state'] = key
-			yield prefix
-#			syslog.syslog(syslog.LOG_ALERT, '%s' % (prefix))
-			line = ''
-		except KeyboardInterrupt:
-			pass
-
-def tosql (mydb,cursor,prefix):
-	try:
-		mydb.ping(True)
-
-		neighbor_tmp = prefix['neighbor'].split('-')
-		if len(neighbor_tmp) == 2:
-			neighbor = neighbor_tmp[1]
-		else:
-			neighbor = neighbor_tmp[0]
-
-		if prefix['state'] == "up":
-			neighbor_state[(neighbor)] = "up"
-			cursor.execute ("DELETE FROM prefixes WHERE (neighbor = %s)", (neighbor))
-			cursor.execute ("UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=1,updown=updown+1,lastup=%s WHERE neighbor=%s", (prefix['time'], neighbor))
-			return
-
-		if prefix['state'] == "down":
-			if neighbor_state.get(neighbor) == "up":
-				neighbor_state[(neighbor)] = "down"
-				cursor.execute ("DELETE FROM prefixes WHERE (neighbor = %s)", (neighbor))
-				cursor.execute ("UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=0,updown=updown+1,lastdown=%s WHERE neighbor=%s", (prefix['time'], neighbor))
-			return
-
-		if prefix['state'] == "connected":
-			return
-
-		if prefix['state'] == "update start":
-			cursor.execute ("START TRANSACTION")
-			return
-
-		if prefix['state'] == "update end":
-			cursor.execute ("COMMIT")
-			return
-
-		if prefix['state'] == "announced":
-			prefix_tmp = prefix['route']
-			x = prefix_tmp.find("/")
-			subnet = int(prefix_tmp[x+1:])
-			ip_start = iptoint(prefix_tmp[:x])
-			prefix['originas'] = int(prefix['as-path'].split(' ')[-1])
-
-			if "." in prefix_tmp:
-				ip_type = 4
-				ip_end = ip_start + (2**(32-subnet)) - 1
+					prefix["state"] = "unknown"
+			# unknown state received
 			else:
-				ip_type = 6
-				ip_end = ip_start + (2**(128-subnet)) - 1
+				prefix["state"] = "unknown"
 
-			poly = 'GEOMFROMWKB(POLYGON(LINESTRING(POINT({0}, -1), POINT({1}, -1), POINT({2}, 1), POINT({3}, 1), POINT({4}, -1))))'.format(ip_start, ip_end, ip_end, ip_start, ip_start)
+			if config["mysql_ping"]:
+				mydb.ping(True)
 
-			if (((ip_type == 4) and (subnet >= 8) and (subnet <= 24)) or ((ip_type == 6) and (subnet >= 16) and (subnet <= 48))):
-				cursor.execute ("""\
-				INSERT INTO iptoasn 
-				(
-					prefix,
-					type,
-					length,
-					ip_poly,
-					originas
-				) VALUES 
-				('%s',%s,'%s',%s,%s) ON DUPLICATE KEY UPDATE originas=%s""" %
-				(
-					prefix['route'],
-					ip_type,
-					subnet,
-					poly,
-					prefix['originas'],
-					prefix['originas']
-				))
+			if prefix["state"] == "connected":
+				if config["debug"]:
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + "\n")
 
-			cursor.execute ("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (neighbor, prefix['route']))
-			if cursor.rowcount == 0:
-				cursor.execute ("""\
-				INSERT INTO prefixes 
-				(
-					neighbor,
-					type,
-					prefix,
-					length,
-					ip_start,
-					ip_end,
-					ip_poly,
-					aspath,
-					nexthop,
-					community,
-					extended_community,
-					origin,
-					originas,
-					time
-				) VALUES 
-				('%s',%s,'%s',%s,%s,%s,%s,'%s','%s','%s','%s','%s',%s,'%s')""" %
-				(
-					neighbor,
-					ip_type,
-					prefix['route'],
-					subnet,
-					ip_start,
-					ip_end,
-					poly,
-					prefix['as-path'],
-					prefix['next-hop'],
-					prefix['community'],
-					prefix['extended-community'],
-					prefix['origin'],
-					prefix['originas'],
-					prefix['time']
-				))
-				cursor.execute ("UPDATE members SET prefixes=prefixes+1,time=%s WHERE neighbor=%s", (prefix['time'], neighbor))
+			elif prefix["state"] == "up":
+				if config["debug"]:
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + "\n")
+
+				cursor.execute("DELETE FROM prefixes WHERE (neighbor = %s)", (prefix["neighbor"]))
+				cursor.execute("UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=1,updown=updown+1,lastup=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+
+			elif prefix["state"] == "down":
+				if config["debug"]:
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + "\n")
+
+				cursor.execute("DELETE FROM prefixes WHERE (neighbor = %s)", (prefix["neighbor"]))
+				cursor.execute("UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=0,updown=updown+1,lastdown=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+
+			elif prefix["state"] == "announce":
+				if config["debug"]:
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + ", prefixes: ")
+
+				for i in range(0, len(prefix["route"])):
+					if config["debug"]:
+						sys.stdout.write(prefix["route"][i])
+						if i < (len(prefix["route"]) - 1):
+							sys.stdout.write(",")
+
+					if config["ip2asn"]:
+						if (((prefix["ip_type"] == 4) and (prefix["subnet"][i] >= 8) and (prefix["subnet"][i] <= 24)) or ((prefix["ip_type"] == 6) and (prefix["subnet"][i] >= 16) and (prefix["subnet"][i] <= 48))):
+							cursor.execute("""\
+							INSERT INTO iptoasn 
+							(
+								prefix,
+								type,
+								length,
+								ip_poly,
+								originas
+							) VALUES 
+							('%s',%s,'%s',%s,%s) ON DUPLICATE KEY UPDATE originas=%s""" %
+							(
+								prefix["route"][i],
+								prefix["ip_type"],
+								prefix["subnet"][i],
+								prefix["poly"][i],
+								prefix["originas"],
+								prefix["originas"]
+							))
+
+					cursor.execute("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (prefix["neighbor"], prefix["route"][i]))
+					if cursor.rowcount == 0:
+						cursor.execute("""\
+						INSERT INTO prefixes 
+						(
+							neighbor,
+							type,
+							prefix,
+							length,
+							ip_start,
+							ip_end,
+							ip_poly,
+							aspath,
+							nexthop,
+							community,
+							extended_community,
+							origin,
+							originas,
+							time
+						) VALUES 
+						('%s',%s,'%s',%s,%s,%s,%s,'%s','%s','%s','%s','%s',%s,'%s')""" %
+						(
+							prefix["neighbor"],
+							prefix["ip_type"],
+							prefix["route"][i],
+							prefix["subnet"][i],
+							prefix["ip_start"][i],
+							prefix["ip_end"][i],
+							prefix["poly"][i],
+							prefix["as-path"],
+							prefix["next-hop"],
+							prefix["community"],
+							prefix["extended-community"],
+							prefix["origin"],
+							prefix["originas"],
+							prefix["time"]
+						))
+						cursor.execute("UPDATE members SET prefixes=prefixes+1,time=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+					else:
+						cursor.execute("UPDATE prefixes SET aspath=%s,nexthop=%s,community=%s,extended_community=%s,origin=%s,originas=%s,time=%s WHERE ((neighbor=%s) && (prefix=%s))", (prefix["as-path"], prefix["next-hop"], prefix["community"], prefix["extended-community"], prefix["origin"], prefix["originas"], prefix["time"], prefix["neighbor"], prefix["route"][i]))
+						cursor.execute("UPDATE members SET time=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+
+				if config["debug"]:
+					sys.stdout.write(", family: inet" + str(prefix["ip_type"]) +
+							", origin: " + str(prefix["origin"]) +
+							", next-hop: " + str(prefix["next-hop"]) +
+							", as-path: " + str(prefix["as-path"]) +
+							", originas: " + str(prefix["originas"]) +
+							", as-set: " + str(prefix["as-set"]) +
+							", community: " + str(prefix["community"]) +
+							", extended-community: " + str(prefix["extended-community"]) +
+							", med: " + str(prefix["med"]) +
+							", aggregator: " + str(prefix["aggregator"]) +
+							", atomic-aggregate: " + str(prefix["atomic-aggregate"]))
+					sys.stdout.write("\n")
+
+			elif prefix["state"] == "withdraw":
+				if config["debug"]:
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + ", prefixes: ")
+
+				for i in range(0, len(prefix["route"])):
+					if config["debug"]:
+						sys.stdout.write(prefix["route"][i])
+						if i < (len(prefix["route"]) - 1):
+							sys.stdout.write(",")
+
+					cursor.execute("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (prefix["neighbor"], prefix["route"][i]))
+					if cursor.rowcount == 0:
+						cursor.execute("UPDATE members SET time=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+					else:
+						cursor.execute("DELETE FROM prefixes WHERE ((neighbor = %s) && (prefix = %s))", (prefix["neighbor"], prefix["route"][i]))
+						cursor.execute("UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+				if config["debug"]:
+					sys.stdout.write("\n")
+			elif prefix["state"] == "shutdown":
+				if config["debug"]:
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"])
 			else:
-				cursor.execute ("UPDATE prefixes SET aspath=%s,nexthop=%s,community=%s,extended_community=%s,origin=%s,originas=%s,time=%s WHERE ((neighbor=%s) && (prefix=%s))", (prefix['as-path'], prefix['next-hop'], prefix['community'], prefix['extended-community'], prefix['origin'], prefix['originas'], prefix['time'], neighbor, prefix['route']))
-				cursor.execute ("UPDATE members SET time=%s WHERE neighbor=%s", (prefix['time'], neighbor))
-			return
+				if config["debug"]:
+					sys.stdout.write("GIX: unknown state\n")
 
-		if prefix['state'] == "withdrawn":
-			cursor.execute ("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (neighbor, prefix['route']))
-			if cursor.rowcount == 0:
-				cursor.execute ("UPDATE members SET time=%s WHERE neighbor=%s", (prefix['time'], neighbor))
-			else:
-				cursor.execute ("DELETE FROM prefixes WHERE ((neighbor = %s) && (prefix = %s))", (neighbor, prefix['route']))
-				cursor.execute ("UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s", (prefix['time'], neighbor))
-			return
+			if config["debug"]:
+				sys.stdout.write("\n")
 
-		syslog.syslog(syslog.LOG_ALERT, 'unparsed prefix %s' % (str(prefix)))
-	except KeyboardInterrupt:
-		tosql(mydb,cursor,prefix)
-
-
-def main ():
-	syslog.openlog("ExaBGP")
-
-	host = ""
-	database = "gixlg"
-	user = "gixlg"
-	password = "gixlg"
-
-#	host = sys.argv[1]
-#	database = sys.argv[2]
-#	user = sys.argv[3]
-#	password = sys.argv[4]
-
-	try:
-		mydb = MySQLdb.connect (host = host, db = database, user = user, passwd = password, unix_socket='/tmp/mysqld.sock', connect_timeout = 0)
-		cursor = mydb.cursor ()
-	except MySQLdb.Error, e:
-		syslog.syslog("error %d: %s" % (e.args[0], e.args[1]))
-		sys.exit(1)
-
-	running = True
-
-	while running:
-		try:
-			for prefix in prefixes():
-				tosql(mydb,cursor,prefix)
-			running = False
-		except KeyboardInterrupt:
-			pass
 		except MySQLdb.Error, e:
-			syslog.syslog("error %d: %s" % (e.args[0], e.args[1]))
-			sys.exit (1)
+			Running = False
+			os._exit(1)
+		except:
+			if config["debug"]:
+				sys.stdout.write("GIX: exception\n")
+				sys.stdout.write(str(prefix) + "\n\n\n")
+			Running = False
+			os._exit(1)
 
-	try:
-		cursor.close ()
-		mydb.close ()
-	except MySQLdb.Error, e:
-		pass
+if __name__ == "__main__":
+	if len(sys.argv) >= 2:
+		if sys.argv[1] == "exabgp":
+			try:
+				if config["debug"]:
+					sys.stdout = open(config["log_file"] + "_" + sys.argv[2], "w")
+					sys.stdout.write("GIX: process start\n")
 
-if __name__ == '__main__':
-	if len(sys.argv) == 5:
-		main ()
+				mydb = MySQLdb.connect(host = config["mysql_host"], db = config["mysql_db"], user = config["mysql_user"], passwd = config["mysql_pass"], unix_socket = config["mysql_sock"], connect_timeout = config["mysql_timeout"])
+				cursor = mydb.cursor()
+
+				Running = True
+				collectord = Thread(target = GIXcollector(mydb, cursor))
+				collectord.daemon = True
+				collectord.start()
+
+				while Running:
+					time.sleep(0.1)
+			except MySQLdb.Error, e:
+				if config["debug"]:
+					sys.stdout.write("GIX: mysql error" + e.args[0] + " - " + e.args[1] + "\n")
+				Running = False
+				sys.exit(1)
+			except KeyboardInterrupt:
+				if config["debug"]:
+					sys.stdout.write("GIX: keyboard interrupt\n")
+				Running = False
+				os._exit(1)
+			except:
+				if config["debug"]:
+					sys.stdout.write("GIX: unknown error\n")
+				Running = False
+				os._exit(1)
 	else:
-		print "%s <host> <database> <user> <password>" % sys.argv[0]
-		sys.exit(1)
+		print "The code is not design to run as a standalone process and can be used only as `process parsed-route-backend` in ExaBGP."
+		print "an example: run %s exabgp [log_file suffix]" % sys.argv[0]
+		sys.exit(2)

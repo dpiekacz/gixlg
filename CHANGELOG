@@ -3,7 +3,12 @@ Version explained:
  minor : increase on new features
  bug   : increase on bug fixes
 
-Version 0.4.x -
+Version 1.0.0 - 15th of February 2014
+ * Rewriting code to support updates in JSON format what should make the code more tolerant to ExaBGP syntax changes or potential errors in received updates
+ * Adding debug option
+ * Moving code to GitHub
+
+Version 0.4.1 -
  * Adding a table iptoasn which contains only unique prefixes
  * Changing collector script to use by default mysql socket instead of tcp connection
 
