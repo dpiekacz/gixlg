@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Created by Daniel Piekacz on 2012-01-14.
-Last update on 2014-02-15.
+Last update on 2014-02-16.
 Copyright (c) 2014 Daniel Piekacz. All rights reserved.
 Project website: gix.net.pl, e-mail: daniel@piekacz.tel
 """
@@ -19,15 +19,25 @@ config["mysql_sock"] = "/tmp/mysqld.sock"
 config["mysql_timeout"] = 0
 config["mysql_ping"] = True
 
+config["http_enable"] = False
+config["http_ip"] = "192.0.2.201"
+config["http_port"] = 10001
+
+config["stats_delayed"] = False
+config["stats_refresh"] = 2
+
 config["ip2asn"] = False
 
-config["log_file"] = "./collector.txt"
+config["log_file"] = "/tmp/collector.txt"
 config["debug"] = False
 
 ##
 ## main code - do not modify the code below the line
 ##
 Running = False
+
+# status | time | lastup | lastdown | prefixes | updown
+neighbors = {}
 
 version = {
 	True : socket.AF_INET,
@@ -42,9 +52,36 @@ def iptoint(ip):
 		value += ord(byte)
 	return value
 
-def GIXcollector(mydb, cursor):
+def NeighborsStatsWorker():
 	global Running
 
+	if config["debug"]:
+		sys.stdout.write("GIX: stats / start\n")
+	while Running:
+		try:
+			with lock:
+				for i in neighbors.keys():
+					cursor.execute("UPDATE members SET status=%s,time=%s,lastup=%s,lastdown=%s,prefixes=%s,updown=%s WHERE neighbor=%s", (neighbors[i][0], neighbors[i][1], neighbors[i][2], neighbors[i][3], neighbors[i][4], neighbors[i][5]), i)
+			time.sleep(config["stats_refresh"])
+
+		except MySQLdb.Error, e:
+			if config["debug"]:
+				sys.stdout.write("GIX: stats / MySQLdb exception" + e.args[0] + " - " + e.args[1] + "\n")
+				sys.stdout.write(str(prefix) + "\n\n\n")
+			Running = False
+			os._exit(1)
+
+		except:
+			if config["debug"]:
+				sys.stdout.write("GIX: stats / exception\n")
+			Running = False
+			os._exit(1)
+
+def GIXcollector():
+	global Running
+
+	if config["debug"]:
+		sys.stdout.write("GIX: collector / start\n")
 	while Running:
 		try:
 			line = sys.stdin.readline().strip()
@@ -241,27 +278,49 @@ def GIXcollector(mydb, cursor):
 			if config["mysql_ping"]:
 				mydb.ping(True)
 
+			neighbor = prefix["neighbor"]
 			if prefix["state"] == "connected":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + "\n")
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + "\n")
+
+				if config["stats_delayed"]:
+					with lock:
+						if neighbor not in neighbors.keys():
+							neighbors[neighbor] = [0, '0000-00-00 00:00:00', '0000-00-00 00:00:00', '0000-00-00 00:00:00', 0, 0]
+						else:
+							neighbors[neighbor] = [0, '0000-00-00 00:00:00', neighbors[neighbor][2], neighbors[neighbor][3], 0, neighbors[neighbor][5]]
 
 			elif prefix["state"] == "up":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + "\n")
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + "\n")
 
-				cursor.execute("DELETE FROM prefixes WHERE (neighbor = %s)", (prefix["neighbor"]))
-				cursor.execute("UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=1,updown=updown+1,lastup=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+				cursor.execute("DELETE FROM prefixes WHERE (neighbor = %s)", (neighbor))
+				if config["stats_delayed"]:
+					with lock:
+						if neighbor not in neighbors.keys():
+							neighbors[neighbor] = [1, '0000-00-00 00:00:00', prefix["time"], '0000-00-00 00:00:00', 0, 1]
+						else:
+							neighbors[neighbor] = [1, '0000-00-00 00:00:00', prefix["time"], neighbors[neighbor][3], 0, neighbors[neighbor][5] + 1]
+				else:
+					cursor.execute("UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=1,updown=updown+1,lastup=%s WHERE neighbor=%s", (prefix["time"], neighbor))
 
 			elif prefix["state"] == "down":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + "\n")
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + "\n")
 
-				cursor.execute("DELETE FROM prefixes WHERE (neighbor = %s)", (prefix["neighbor"]))
-				cursor.execute("UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=0,updown=updown+1,lastdown=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+				cursor.execute("DELETE FROM prefixes WHERE (neighbor = %s)", (neighbor))
+				if config["stats_delayed"]:
+					with lock:
+						if neighbor not in neighbors.keys():
+							neighbors[neighbor] = [0, '0000-00-00 00:00:00', '0000-00-00 00:00:00', prefix["time"], 0, 1]
+						else:
+							neighbors[neighbor] = [0, '0000-00-00 00:00:00', neighbors[neighbor][2], prefix["time"], 0, neighbors[neighbor][5] + 1]
+				else:
+					cursor.execute("UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=0,updown=updown+1,lastdown=%s WHERE neighbor=%s", (prefix["time"], neighbor))
 
 			elif prefix["state"] == "announce":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + ", prefixes: ")
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + ", prefixes: ")
 
 				for i in range(0, len(prefix["route"])):
 					if config["debug"]:
@@ -290,7 +349,7 @@ def GIXcollector(mydb, cursor):
 								prefix["originas"]
 							))
 
-					cursor.execute("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (prefix["neighbor"], prefix["route"][i]))
+					cursor.execute("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (neighbor, prefix["route"][i]))
 					if cursor.rowcount == 0:
 						cursor.execute("""\
 						INSERT INTO prefixes 
@@ -312,7 +371,7 @@ def GIXcollector(mydb, cursor):
 						) VALUES 
 						('%s',%s,'%s',%s,%s,%s,%s,'%s','%s','%s','%s','%s',%s,'%s')""" %
 						(
-							prefix["neighbor"],
+							neighbor,
 							prefix["ip_type"],
 							prefix["route"][i],
 							prefix["subnet"][i],
@@ -327,10 +386,18 @@ def GIXcollector(mydb, cursor):
 							prefix["originas"],
 							prefix["time"]
 						))
-						cursor.execute("UPDATE members SET prefixes=prefixes+1,time=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+						if config["stats_delayed"]:
+							with lock:
+								neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4] + 1, neighbors[neighbor][5]]
+						else:
+							cursor.execute("UPDATE members SET prefixes=prefixes+1,time=%s WHERE neighbor=%s", (prefix["time"], neighbor))
 					else:
-						cursor.execute("UPDATE prefixes SET aspath=%s,nexthop=%s,community=%s,extended_community=%s,origin=%s,originas=%s,time=%s WHERE ((neighbor=%s) && (prefix=%s))", (prefix["as-path"], prefix["next-hop"], prefix["community"], prefix["extended-community"], prefix["origin"], prefix["originas"], prefix["time"], prefix["neighbor"], prefix["route"][i]))
-						cursor.execute("UPDATE members SET time=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+						cursor.execute("UPDATE prefixes SET aspath=%s,nexthop=%s,community=%s,extended_community=%s,origin=%s,originas=%s,time=%s WHERE ((neighbor=%s) && (prefix=%s))", (prefix["as-path"], prefix["next-hop"], prefix["community"], prefix["extended-community"], prefix["origin"], prefix["originas"], prefix["time"], neighbor, prefix["route"][i]))
+						if config["stats_delayed"]:
+							with lock:
+								neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4], neighbors[neighbor][5]]
+						else:
+							cursor.execute("UPDATE members SET time=%s WHERE neighbor=%s", (prefix["time"], neighbor))
 
 				if config["debug"]:
 					sys.stdout.write(", family: inet" + str(prefix["ip_type"]) +
@@ -348,7 +415,7 @@ def GIXcollector(mydb, cursor):
 
 			elif prefix["state"] == "withdraw":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"] + ", prefixes: ")
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + ", prefixes: ")
 
 				for i in range(0, len(prefix["route"])):
 					if config["debug"]:
@@ -356,30 +423,42 @@ def GIXcollector(mydb, cursor):
 						if i < (len(prefix["route"]) - 1):
 							sys.stdout.write(",")
 
-					cursor.execute("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (prefix["neighbor"], prefix["route"][i]))
+					cursor.execute("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (neighbor, prefix["route"][i]))
 					if cursor.rowcount == 0:
-						cursor.execute("UPDATE members SET time=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+						if config["stats_delayed"]:
+							with lock:
+								neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4], neighbors[neighbor][5]]
+						else:
+							cursor.execute("UPDATE members SET time=%s WHERE neighbor=%s", (prefix["time"], neighbor))
 					else:
-						cursor.execute("DELETE FROM prefixes WHERE ((neighbor = %s) && (prefix = %s))", (prefix["neighbor"], prefix["route"][i]))
-						cursor.execute("UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s", (prefix["time"], prefix["neighbor"]))
+						cursor.execute("DELETE FROM prefixes WHERE ((neighbor = %s) && (prefix = %s))", (neighbor, prefix["route"][i]))
+						if config["stats_delayed"]:
+							with lock:
+								neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4] - 1, neighbors[neighbor][5]]
+						else:
+							cursor.execute("UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s", (prefix["time"], neighbor))
 				if config["debug"]:
 					sys.stdout.write("\n")
 			elif prefix["state"] == "shutdown":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + prefix["neighbor"])
+					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor)
 			else:
 				if config["debug"]:
-					sys.stdout.write("GIX: unknown state\n")
+					sys.stdout.write("GIX: collector / unknown ExaBGP update\n")
 
 			if config["debug"]:
 				sys.stdout.write("\n")
 
 		except MySQLdb.Error, e:
+			if config["debug"]:
+				sys.stdout.write("GIX: collector / MySQLdb exception" + e.args[0] + " - " + e.args[1] + "\n")
+				sys.stdout.write(str(prefix) + "\n\n\n")
 			Running = False
 			os._exit(1)
+
 		except:
 			if config["debug"]:
-				sys.stdout.write("GIX: exception\n")
+				sys.stdout.write("GIX: collector / exception\n")
 				sys.stdout.write(str(prefix) + "\n\n\n")
 			Running = False
 			os._exit(1)
@@ -389,35 +468,53 @@ if __name__ == "__main__":
 		if sys.argv[1] == "exabgp":
 			try:
 				if config["debug"]:
-					sys.stdout = open(config["log_file"] + "_" + sys.argv[2], "w")
-					sys.stdout.write("GIX: process start\n")
+					if sys.argv[2] != "":
+						sys.stdout = open(config["log_file"] + "_" + sys.argv[2], "w")
+					else:
+						sys.stdout = open(config["log_file"], "w")
+					sys.stdout.write("GIX: main / start\n")
 
 				mydb = MySQLdb.connect(host = config["mysql_host"], db = config["mysql_db"], user = config["mysql_user"], passwd = config["mysql_pass"], unix_socket = config["mysql_sock"], connect_timeout = config["mysql_timeout"])
 				cursor = mydb.cursor()
 
+				lock = RLock()
 				Running = True
-				collectord = Thread(target = GIXcollector(mydb, cursor))
+
+				if config["stats_delayed"]:
+					statsd = Thread(target = NeighborsStatsWorker)
+					statsd.daemon = True
+					statsd.start()
+
+				collectord = Thread(target = GIXcollector)
 				collectord.daemon = True
 				collectord.start()
 
+				if config["debug"]:
+					sys.stdout.write("GIX: main / all threads started\n")
+
 				while Running:
-					time.sleep(0.1)
+					if config["debug"]:
+						sys.stdout.write("GIX: main / 1s loop\n")
+					time.sleep(1)
+
 			except MySQLdb.Error, e:
 				if config["debug"]:
-					sys.stdout.write("GIX: mysql error" + e.args[0] + " - " + e.args[1] + "\n")
+					sys.stdout.write("GIX: main / MySQLdb exception" + e.args[0] + " - " + e.args[1] + "\n")
 				Running = False
 				sys.exit(1)
+
 			except KeyboardInterrupt:
 				if config["debug"]:
-					sys.stdout.write("GIX: keyboard interrupt\n")
+					sys.stdout.write("GIX: main / keyboard interrupt\n")
 				Running = False
 				os._exit(1)
+
 			except:
 				if config["debug"]:
-					sys.stdout.write("GIX: unknown error\n")
+					sys.stdout.write("GIX: main / exception\n")
 				Running = False
 				os._exit(1)
 	else:
 		print "The code is not design to run as a standalone process and can be used only as `process parsed-route-backend` in ExaBGP."
-		print "an example: run %s exabgp [log_file suffix]" % sys.argv[0]
+		print "an example: run %s exabgp [log file suffix]" % sys.argv[0]
 		sys.exit(2)

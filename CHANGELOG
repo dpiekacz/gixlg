@@ -3,6 +3,10 @@ Version explained:
  minor : increase on new features
  bug   : increase on bug fixes
 
+Version 1.0.x - 16th of February 2014
+ * Adding an option to delay updates for members stats. This will significatly reduce number of requests to MySQL database
+ - Issue: sys.stdin.readline is blocking other threads
+
 Version 1.0.0 - 15th of February 2014
  * Rewriting code to support updates in JSON format what should make the code more tolerant to ExaBGP syntax changes or potential errors in received updates
  * Adding debug option
