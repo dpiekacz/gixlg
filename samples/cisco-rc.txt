@@ -1,11 +1,31 @@
-neighbor 198.51.100.255 remote-as 12345
-neighbor 198.51.100.255 description GIXLG
-neighbor 198.51.100.255 ebgp-multihop 64
-neighbor 198.51.100.255 update-source Loopback0
+neighbor 198.51.100.1 remote-as 12345
+neighbor 198.51.100.1 description GIXLG
+neighbor 198.51.100.1 ebgp-multihop 64
+neighbor 198.51.100.1 transport connection-mode passive
+neighbor 198.51.100.1 update-source Loopback0
+
+neighbor 2001:db8::1 remote-as 12345
+neighbor 2001:db8::1 description GIXLG
+neighbor 2001:db8::1 ebgp-multihop 64
+neighbor 2001:db8::1 transport connection-mode passive
+neighbor 2001:db8::1 update-source Loopback0
+
 address-family ipv4
- neighbor 198.51.100.255 activate
- neighbor 198.51.100.255 send-community
- neighbor 198.51.100.255 next-hop-unchanged
- neighbor 198.51.100.255 send-label
- neighbor 198.51.100.255 prefix-list deny-all in
+ neighbor 198.51.100.1 activate
+ neighbor 198.51.100.1 send-community
+ neighbor 198.51.100.1 next-hop-unchanged
+ neighbor 198.51.100.1 send-label
+ neighbor 198.51.100.1 prefix-list deny-all in
 exit-address-family
+!
+address-family ipv6
+ neighbor 2001:db8::1 activate
+ neighbor 2001:db8::1 send-community
+ neighbor 2001:db8::1 next-hop-unchanged
+ neighbor 2001:db8::1 send-label
+ neighbor 2001:db8::1 prefix-list deny-all in
+exit-address-family
+!
+ip prefix-list deny-all seq 1 deny 0.0.0.0/0 le 32
+!
+ipv6 prefix-list deny-all seq 1 deny ::/0 le 128

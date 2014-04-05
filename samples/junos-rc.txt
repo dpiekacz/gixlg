@@ -1,35 +1,45 @@
-group gixlg-v4 {
+# protocols bgp
+group gixlg_v4 {
     type external;
     multihop {
+        ttl 64;
         no-nexthop-change;
     }
-    local-address 198.51.100.1;
+    local-address 198.51.100.254;
     passive;
     advertise-peer-as;
     import deny-all;
-    peer-as 12345;
     include-mp-next-hop;
-    neighbor 198.51.100.255 {
+    neighbor 198.51.100.1 {
+        description "GIXLG";
+        peer-as 12345;
         family inet {
             unicast;
         }
     }
 }
 
-group gixlg-v6 {
+group gixlg_v6 {
     type external;
     multihop {
+        ttl 64;
         no-nexthop-change;
     }
     local-address 2001:db8::ffff;
     passive;
     advertise-peer-as;
     import deny-all;
-    peer-as 12345;
     include-mp-next-hop;
     neighbor 2001:db8::1 {
+        description "GIXLG";
+        peer-as 12345;
         family inet6 {
             unicast;
         }
     }
+}
+
+# policy-options
+policy-statement deny-all {
+    then reject;
 }

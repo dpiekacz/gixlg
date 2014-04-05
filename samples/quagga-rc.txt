@@ -1,6 +1,24 @@
-neighbor 198.51.100.255 remote-as 12345
-neighbor 198.51.100.255 description GIXLG
-neighbor 198.51.100.255 ebgp-multihop 64
-neighbor 198.51.100.255 update-source 198.51.100.1
-neighbor 198.51.100.255 prefix-list deny-all in
-neighbor 198.51.100.255 attribute-unchanged next-hop med
+neighbor 198.51.100.1 remote-as 12345
+neighbor 198.51.100.1 description GIXLG
+neighbor 198.51.100.1 passive
+neighbor 198.51.100.1 ebgp-multihop 64
+neighbor 198.51.100.1 update-source 198.51.100.254
+neighbor 198.51.100.1 prefix-list deny-all in
+neighbor 198.51.100.1 attribute-unchanged next-hop med
+!
+neighbor 2001:db8::1 remote-as 12345
+neighbor 2001:db8::1 description GIXLG
+neighbor 2001:db8::1 passive
+neighbor 2001:db8::1 ebgp-multihop 64
+neighbor 2001:db8::1 update-source 2001:db8::ffff
+no neighbor 2001:db8::1 activate
+!
+address-family ipv6
+neighbor 2001:db8::1 activate
+neighbor 2001:db8::1 prefix-list deny-all in
+neighbor 2001:db8::1 attribute-unchanged next-hop med
+!
+ip prefix-list deny-all seq 1 deny any
+!
+ipv6 prefix-list deny-all seq 1 deny any
+!
