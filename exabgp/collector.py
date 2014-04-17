@@ -1,34 +1,44 @@
 #!/usr/bin/env python
 """
 Created by Daniel Piekacz on 2012-01-14.
-Last update on 2014-02-16.
+Last update on 2014-04-17.
 Copyright (c) 2014 Daniel Piekacz. All rights reserved.
 Project website: gix.net.pl, e-mail: daniel@piekacz.tel
 """
 import os, sys, time, socket
 import json
+import radix
 import MySQLdb
+import logging
 from threading import Thread, RLock
 
 config = {}
+
+## mysql database details - host, database, user, password, socket, timeout.
 config["mysql_host"] = ""
 config["mysql_db"] = "gixlg"
 config["mysql_user"] = "gixlg"
 config["mysql_pass"] = "gixlg"
 config["mysql_sock"] = "/tmp/mysqld.sock"
 config["mysql_timeout"] = 0
-config["mysql_ping"] = True
+## True/False - check if mysql connection is still live. significantly reduces overall performance.
+config["mysql_ping"] = False
 
+## web interface - not yet implemented.
 config["http_enable"] = False
-config["http_ip"] = "192.0.2.201"
+config["http_ip"] = "127.0.0.1"
 config["http_port"] = 10001
 
-config["stats_delayed"] = False
+## True/False - delay updating stats in members table. significantly limits number of mysql requests and time required to process full bgp tables.
+config["stats_delayed"] = True
+## update members table every X seconds.
 config["stats_refresh"] = 2
 
+## True/False - enable to update iptoasn table.
 config["ip2asn"] = False
 
-config["log_file"] = "/tmp/collector.txt"
+## logging and debugging.
+config["log_file"] = "/opt/gixlg/exabgp/collector.log"
 config["debug"] = False
 
 ##
@@ -53,27 +63,33 @@ def iptoint(ip):
 	return value
 
 def NeighborsStatsWorker():
-	global Running
+	global Running, config, neighbors, prefix
 
 	if config["debug"]:
-		sys.stdout.write("GIX: stats / start\n")
+		logging.info("GIXLG: stats / start")
+
+	mydb_stats = MySQLdb.connect(host = config["mysql_host"], db = config["mysql_db"], user = config["mysql_user"], passwd = config["mysql_pass"], unix_socket = config["mysql_sock"], connect_timeout = config["mysql_timeout"])
+	cursor_stats = mydb_stats.cursor()
+
 	while Running:
 		try:
 			with lock:
 				for i in neighbors.keys():
-					cursor.execute("UPDATE members SET status=%s,time=%s,lastup=%s,lastdown=%s,prefixes=%s,updown=%s WHERE neighbor=%s", (neighbors[i][0], neighbors[i][1], neighbors[i][2], neighbors[i][3], neighbors[i][4], neighbors[i][5]), i)
+					cursor_stats.execute("UPDATE members SET status=%s,time=%s,lastup=%s,lastdown=%s,prefixes=%s,updown=%s WHERE neighbor=%s", (neighbors[i][0], neighbors[i][1], neighbors[i][2], neighbors[i][3], neighbors[i][4], neighbors[i][5], i))
+
 			time.sleep(config["stats_refresh"])
 
 		except MySQLdb.Error, e:
 			if config["debug"]:
-				sys.stdout.write("GIX: stats / MySQLdb exception" + e.args[0] + " - " + e.args[1] + "\n")
-				sys.stdout.write(str(prefix) + "\n\n\n")
+				logging.info("GIXLG: stats / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
+				if 'prefix' in globals():
+					logging.info(str(prefix))
 			Running = False
 			os._exit(1)
 
 		except:
 			if config["debug"]:
-				sys.stdout.write("GIX: stats / exception\n")
+				logging.info("GIXLG: stats / exception")
 			Running = False
 			os._exit(1)
 
@@ -81,7 +97,7 @@ def GIXcollector():
 	global Running
 
 	if config["debug"]:
-		sys.stdout.write("GIX: collector / start\n")
+		logging.info("GIXLG: collector / start")
 	while Running:
 		try:
 			line = sys.stdin.readline().strip()
@@ -93,7 +109,7 @@ def GIXcollector():
 			counter = 0
 
 			if config["debug"]:
-				sys.stdout.write("EXABGP: " + line + "\n")
+				logging.info("EXABGP: " + line)
 
 			prefix_json = json.loads(line)
 			prefix_keys = prefix_json.keys()
@@ -281,7 +297,7 @@ def GIXcollector():
 			neighbor = prefix["neighbor"]
 			if prefix["state"] == "connected":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + "\n")
+					logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor)
 
 				if config["stats_delayed"]:
 					with lock:
@@ -292,7 +308,7 @@ def GIXcollector():
 
 			elif prefix["state"] == "up":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + "\n")
+					logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor)
 
 				cursor.execute("DELETE FROM prefixes WHERE (neighbor = %s)", (neighbor))
 				if config["stats_delayed"]:
@@ -306,7 +322,7 @@ def GIXcollector():
 
 			elif prefix["state"] == "down":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + "\n")
+					logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor)
 
 				cursor.execute("DELETE FROM prefixes WHERE (neighbor = %s)", (neighbor))
 				if config["stats_delayed"]:
@@ -320,13 +336,26 @@ def GIXcollector():
 
 			elif prefix["state"] == "announce":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + ", prefixes: ")
+					logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor +
+							", family: inet" + str(prefix["ip_type"]) +
+							", origin: " + str(prefix["origin"]) +
+							", next-hop: " + str(prefix["next-hop"]) +
+							", as-path: " + str(prefix["as-path"]) +
+							", originas: " + str(prefix["originas"]) +
+							", as-set: " + str(prefix["as-set"]) +
+							", community: " + str(prefix["community"]) +
+							", extended-community: " + str(prefix["extended-community"]) +
+							", med: " + str(prefix["med"]) +
+							", aggregator: " + str(prefix["aggregator"]) +
+							", atomic-aggregate: " + str(prefix["atomic-aggregate"]) +
+							", prefixes: ")
+					log_prefixes = ""
 
 				for i in range(0, len(prefix["route"])):
 					if config["debug"]:
-						sys.stdout.write(prefix["route"][i])
+						log_prefixes += prefix["route"][i]
 						if i < (len(prefix["route"]) - 1):
-							sys.stdout.write(",")
+							log_prefixes += ","
 
 					if config["ip2asn"]:
 						if (((prefix["ip_type"] == 4) and (prefix["subnet"][i] >= 8) and (prefix["subnet"][i] <= 24)) or ((prefix["ip_type"] == 6) and (prefix["subnet"][i] >= 16) and (prefix["subnet"][i] <= 48))):
@@ -398,30 +427,19 @@ def GIXcollector():
 								neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4], neighbors[neighbor][5]]
 						else:
 							cursor.execute("UPDATE members SET time=%s WHERE neighbor=%s", (prefix["time"], neighbor))
-
 				if config["debug"]:
-					sys.stdout.write(", family: inet" + str(prefix["ip_type"]) +
-							", origin: " + str(prefix["origin"]) +
-							", next-hop: " + str(prefix["next-hop"]) +
-							", as-path: " + str(prefix["as-path"]) +
-							", originas: " + str(prefix["originas"]) +
-							", as-set: " + str(prefix["as-set"]) +
-							", community: " + str(prefix["community"]) +
-							", extended-community: " + str(prefix["extended-community"]) +
-							", med: " + str(prefix["med"]) +
-							", aggregator: " + str(prefix["aggregator"]) +
-							", atomic-aggregate: " + str(prefix["atomic-aggregate"]))
-					sys.stdout.write("\n")
+					logging.info(log_prefixes)
 
 			elif prefix["state"] == "withdraw":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor + ", prefixes: ")
+					logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor + ", prefixes: ")
+					log_prefixes = ""
 
 				for i in range(0, len(prefix["route"])):
 					if config["debug"]:
-						sys.stdout.write(prefix["route"][i])
+						log_prefixes += prefix["route"][i]
 						if i < (len(prefix["route"]) - 1):
-							sys.stdout.write(",")
+							log_prefixes += ","
 
 					cursor.execute("SELECT '' FROM prefixes WHERE ((neighbor=%s) && (prefix=%s))", (neighbor, prefix["route"][i]))
 					if cursor.rowcount == 0:
@@ -438,41 +456,41 @@ def GIXcollector():
 						else:
 							cursor.execute("UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s", (prefix["time"], neighbor))
 				if config["debug"]:
-					sys.stdout.write("\n")
+					logging.info(log_prefixes)
+
 			elif prefix["state"] == "shutdown":
 				if config["debug"]:
-					sys.stdout.write("GIX: " + prefix["state"] + ", neighbor: " + neighbor)
+					logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor)
 			else:
 				if config["debug"]:
-					sys.stdout.write("GIX: collector / unknown ExaBGP update\n")
-
-			if config["debug"]:
-				sys.stdout.write("\n")
+					logging.info("GIXLG: collector / unknown ExaBGP update")
 
 		except MySQLdb.Error, e:
 			if config["debug"]:
-				sys.stdout.write("GIX: collector / MySQLdb exception" + e.args[0] + " - " + e.args[1] + "\n")
-				sys.stdout.write(str(prefix) + "\n\n\n")
+				logging.info("GIXLG: collector / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
+				if 'prefix' in globals():
+					logging.info(str(prefix))
 			Running = False
 			os._exit(1)
 
 		except:
 			if config["debug"]:
-				sys.stdout.write("GIX: collector / exception\n")
-				sys.stdout.write(str(prefix) + "\n\n\n")
+				logging.info("GIXLG: collector / exception")
+				if 'prefix' in globals():
+					logging.info(str(prefix))
 			Running = False
 			os._exit(1)
 
 if __name__ == "__main__":
-	if len(sys.argv) >= 2:
+	if len(sys.argv) == 2 or len(sys.argv) == 3:
 		if sys.argv[1] == "exabgp":
 			try:
 				if config["debug"]:
-					if sys.argv[2] != "":
-						sys.stdout = open(config["log_file"] + "_" + sys.argv[2], "w")
+					if len(sys.argv) == 3:
+						logging.basicConfig(level=logging.DEBUG, filename=config["log_file"] + "_" + sys.argv[2])
 					else:
-						sys.stdout = open(config["log_file"], "w")
-					sys.stdout.write("GIX: main / start\n")
+						logging.basicConfig(level=logging.DEBUG, filename=config["log_file"])
+					logging.info("GIXLG: main / start")
 
 				mydb = MySQLdb.connect(host = config["mysql_host"], db = config["mysql_db"], user = config["mysql_user"], passwd = config["mysql_pass"], unix_socket = config["mysql_sock"], connect_timeout = config["mysql_timeout"])
 				cursor = mydb.cursor()
@@ -490,28 +508,28 @@ if __name__ == "__main__":
 				collectord.start()
 
 				if config["debug"]:
-					sys.stdout.write("GIX: main / all threads started\n")
+					logging.info("GIXLG: main / all threads started")
 
 				while Running:
 					if config["debug"]:
-						sys.stdout.write("GIX: main / 1s loop\n")
+						logging.info("GIXLG: main / " + str(config["stats_refresh"]) + "s loop")
 					time.sleep(1)
 
 			except MySQLdb.Error, e:
 				if config["debug"]:
-					sys.stdout.write("GIX: main / MySQLdb exception" + e.args[0] + " - " + e.args[1] + "\n")
+					logging.info("GIXLG: main / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
 				Running = False
 				sys.exit(1)
 
 			except KeyboardInterrupt:
 				if config["debug"]:
-					sys.stdout.write("GIX: main / keyboard interrupt\n")
+					logging.info("GIXLG: main / keyboard interrupt")
 				Running = False
 				os._exit(1)
 
 			except:
 				if config["debug"]:
-					sys.stdout.write("GIX: main / exception\n")
+					logging.info("GIXLG: main / exception")
 				Running = False
 				os._exit(1)
 	else:

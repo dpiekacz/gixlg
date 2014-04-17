@@ -3,7 +3,14 @@ Version explained:
  minor : increase on new features
  bug   : increase on bug fixes
 
-Version 1.0.x - 16th of February 2014
+Version 1.0.2 - 17th of April 2014
+ - Issue with stats_delayed feature (FIXED)
+ - Web browsers complain to load jquery from unsecure URL when GIXLG is installed as a secure website (FIXED)
+ - In debug mode collector process dies when a MySQL exception is rised without logging the reason (FIXED)
+ - Debug mode logging (IMPROVEMENT)
+ - Disable mysql ping in a default config
+ 
+Version 1.0.1 - 16th of February 2014
  * Adding an option to delay updates for members stats. This will significatly reduce number of requests to MySQL database
  - Issue: sys.stdin.readline is blocking other threads
 
