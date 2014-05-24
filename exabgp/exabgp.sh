@@ -9,7 +9,7 @@ env exabgp.daemon.daemonize=true \
  exabgp.tcp.port="179" \
  exabgp.log.enable=true \
  exabgp.log.all=false \
- exabgp.log.destination=/opt/gixlg/exabgp/exabgp.log \
+ exabgp.log.destination=/opt/gixlg/exabgp/log_exabgp \
  exabgp.cache.attributes=false \
  exabgp.cache.nexthops=false \
  ./exabgp /opt/gixlg/exabgp/exabgp.conf

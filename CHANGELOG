@@ -3,6 +3,13 @@ Version explained:
  minor : increase on new features
  bug   : increase on bug fixes
 
+Version 2.0.0 - 24th of May 2014
+ - Implementing multithreading. A few threads can process updates received from ExaBGP.
+ - Adding prefix cache to limit number of SQL queries. Be careful because the collector.py process size may grow to hundreds of MB or more.
+ - Adding option to turn off all SQL operation.
+ - Improved logging.
+ - Making code PEP8 compliant with a single exception E501 (line too long).
+
 Version 1.0.2 - 17th of April 2014
  - Issue with stats_delayed feature (FIXED)
  - Web browsers complain to load jquery from unsecure URL when GIXLG is installed as a secure website (FIXED)
