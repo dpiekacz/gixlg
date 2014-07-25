@@ -235,7 +235,7 @@ function gixlg_execsqlrequest($router, $request)
      $res = mysql_query("SELECT * FROM `prefixes` WHERE (`prefix`='$argument') ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`", $mid);
     } else {
      $int_ip = inet_ptoi($argument);
-     $res = mysql_query("SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))) && `length`!=0) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`", $mid);
+     $res = mysql_query("SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0)))) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`", $mid);
     }
     $nr = mysql_num_rows($res);
 ?>

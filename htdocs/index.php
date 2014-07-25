@@ -14,7 +14,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <title>GIX looking glass</title>
-<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/2.1.0/jquery.min.js"></script>
+<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
 <script type="text/javascript" src="lib/popup-ioshack.js"></script>
 <link href="lib/gixlg.css" rel="stylesheet" type="text/css" />
 </head>
@@ -29,7 +29,7 @@
 </thead>
 <tfoot>
 <tr>
-<td colspan="2"><em><a href="https://github.com/dpiekacz/gixlg">GIX looking glass</a> - Copyright &copy; Daniel Piekacz</em></td>
+<td colspan="2"><em><a href="http://gixtools.net">GIXLG</a> - Copyright &copy; GIXtools</em></td>
 </tr>
 </tfoot>
 <tbody>

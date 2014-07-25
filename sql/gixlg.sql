@@ -54,8 +54,6 @@ CREATE TABLE IF NOT EXISTS `prefixes` (
   UNIQUE KEY `neighbor_prefix` (`neighbor`,`prefix`),
   KEY `prefix` (`prefix`),
   KEY `neighbor` (`neighbor`),
-  KEY `length` (`length`),
-  KEY `originas` (`originas`),
   KEY `aspath` (`aspath`),
   SPATIAL KEY `ip_poly` (`ip_poly`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8;
@@ -69,8 +67,6 @@ CREATE TABLE IF NOT EXISTS `iptoasn` (
   `originas` int(10) unsigned NOT NULL,
   UNIQUE KEY `prefix` (`prefix`),
   KEY `type` (`type`),
-  KEY `length` (`length`),
-  KEY `originas` (`originas`),
   SPATIAL KEY `ip_poly` (`ip_poly`)
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8;
 

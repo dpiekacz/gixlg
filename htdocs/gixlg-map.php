@@ -27,7 +27,7 @@
   $res = mysql_query("SELECT * FROM `prefixes` WHERE (`prefix`='$prefix')", $mid);
  } else {
   $int_ip = inet_ptoi($prefix);
-  $res = mysql_query("SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))) && `length`!=0)", $mid);
+  $res = mysql_query("SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))))", $mid);
  }
 
  $graph = array('edgesFrom'=>array(),'nodes'=>array(),'attributes'=>array(),'clusters'=>array(),'subgraphs'=>array(),'bgcolor'=>'#e8edff');

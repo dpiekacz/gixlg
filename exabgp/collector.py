@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Created by Daniel Piekacz on 2012-01-14.
-Last update on 2014-05-24.
+Last update on 2014-07-25.
 Copyright (c) 2014 Daniel Piekacz. All rights reserved.
 Project website: gix.net.pl, e-mail: daniel@piekacz.tel
 """
@@ -18,7 +18,7 @@ from threading import Thread, RLock
 
 config = {}
 
-# mysql database details - host, database, user, password, socket, timeout.
+# MySQL database details - host, database, user, password, socket, timeout.
 config["mysql_enable"] = True
 config["mysql_host"] = ""
 config["mysql_db"] = "gixlg"
@@ -26,8 +26,8 @@ config["mysql_user"] = "gixlg"
 config["mysql_pass"] = "gixlg"
 config["mysql_sock"] = "/tmp/mysqld.sock"
 config["mysql_timeout"] = 0
-# True/False - Check if MySQL connection is still live. That significantly
-# can reduce overall performance.
+# True/False - Check if MySQL connection is still live. That significantly can
+# reduce overall performance.
 config["mysql_ping"] = False
 
 # Web interface - Not yet implemented.
@@ -35,17 +35,17 @@ config["http_enable"] = False
 config["http_ip"] = "127.0.0.1"
 config["http_port"] = 10001
 
-# Nb of collector threads
+# Nb of collector threads.
 config["collector_threads"] = 4
-# Size of collector queue
+# Size of collector queue.
 config["collector_queue"] = 10000
 
 # True/False - Enable prefix cache.
-config["prefix_cache"] = True
+config["prefix_cache"] = False
 
-# True/False - Enable a delay of updating stats in members table.
-# That significantly reduces number of mysql queries and can
-# reduce time required to process all updates.
+# True/False - Enable a delay of updating stats in members table. That
+# significantly reduces number of mysql queries and can reduce time required
+# to process all updates.
 config["stats_delayed"] = True
 # Update members table every X seconds.
 config["stats_refresh"] = 2
@@ -58,7 +58,7 @@ config["log_file"] = "/opt/gixlg/exabgp/log_collector"
 config["debug"] = False
 
 #
-# Main code - do not modify the code below the line
+# Main code - Do not modify the code below the line.
 #
 Running = False
 
@@ -119,20 +119,23 @@ def Stats_Worker():
                             )
                         )
 
+                logging.info("GIXLG: stats / update")
                 time.sleep(config["stats_refresh"])
 
         except MySQLdb.Error, e:
             if config["debug"]:
                 logging.info("GIXLG: stats / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
-            Running = False
-            os._exit(1)
+            pass
 
         except:
             if config["debug"]:
                 e = str(sys.exc_info())
                 logging.info("GIXLG: stats / exception: " + e)
-            Running = False
-            os._exit(1)
+            pass
+
+    if config["mysql_enable"]:
+        cursor_stats.close()
+        mydb_stats.close()
 
 
 def Collector_Worker():
@@ -155,189 +158,223 @@ def Collector_Worker():
 
                 prefix_json = json.loads(line)
                 prefix_keys = prefix_json.keys()
-
                 prefix = {}
-                prefix["time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                Processing = True
 
-                # check update received from exabgp
-                if "exabgp" in prefix_keys:
+                # Start of decoding ExaBGP message.
 
-                    # check if this is neighbor status change or prefix update
-                    if "neighbor" in prefix_keys:
-                        prefix_neighbor_keys = prefix_json["neighbor"].keys()
-
-                        # neighbor status change: connected, up or down
-                        if "state" in prefix_neighbor_keys and "ip" in prefix_neighbor_keys:
-                            prefix["state"] = prefix_json["neighbor"]["state"]
-                            prefix["neighbor"] = prefix_json["neighbor"]["ip"]
-
-                        # prefix update
-                        if "update" in prefix_neighbor_keys and "ip" in prefix_neighbor_keys:
-                            prefix["neighbor"] = prefix_json["neighbor"]["ip"]
-                            prefix_neighbor_update_keys = prefix_json["neighbor"]["update"].keys()
-
-                            if "." in prefix["neighbor"]:
-                                prefix["ip_type"] = 4
-                            else:
-                                prefix["ip_type"] = 6
-
-                            prefix["route"] = {}
-                            prefix["subnet"] = {}
-                            prefix["ip_start"] = {}
-                            prefix["ip_end"] = {}
-                            prefix["poly"] = {}
-
-                            # prefix withdrawal
-                            if "withdraw" in prefix_neighbor_update_keys:
-                                prefix["state"] = "withdraw"
-                                prefix_neighbor_update_withdraw_keys = prefix_json["neighbor"]["update"]["withdraw"].keys()
-                                family = prefix_neighbor_update_withdraw_keys[0]
-
-                                i = 0
-                                for route in prefix_json["neighbor"]["update"]["withdraw"][family].keys():
-                                    prefix["route"][i] = route
-                                    i += 1
-
-                            # prefix announcement
-                            elif "announce" in prefix_neighbor_update_keys:
-                                    prefix["state"] = "announce"
-                                    prefix_neighbor_update_announce_keys = prefix_json["neighbor"]["update"]["announce"].keys()
-                                    prefix["next-hop"] = prefix_neighbor_update_announce_keys[0]
-
-                                    i = 0
-                                    for route in prefix_json["neighbor"]["update"]["announce"][prefix["next-hop"]].keys():
-                                        prefix["route"][i] = route
-
-                                        x = route.find("/")
-
-                                        prefix["subnet"][i] = int(route[x+1:])
-                                        prefix["ip_start"][i] = IP2int(route[:x])
-
-                                        if prefix["ip_type"] == 4:
-                                            prefix["ip_end"][i] = prefix["ip_start"][i] + (2**(32 - prefix["subnet"][i])) - 1
-                                        else:
-                                            prefix["ip_end"][i] = prefix["ip_start"][i] + (2**(128 - prefix["subnet"][i])) - 1
-                                        prefix["poly"][i] = "GEOMFROMWKB(POLYGON(LINESTRING(POINT({0}, -1), POINT({1}, -1), POINT({2}, 1), POINT({3}, 1), POINT({4}, -1))))".format(prefix["ip_start"][i], prefix["ip_end"][i], prefix["ip_end"][i], prefix["ip_start"][i], prefix["ip_start"][i])
-
-                                        i += 1
-
-                                    if "attribute" in prefix_neighbor_update_keys:
-                                        prefix_neighbor_update_attribute_keys = prefix_json["neighbor"]["update"]["attribute"].keys()
-
-                                        if "origin" in prefix_neighbor_update_attribute_keys:
-                                            prefix["origin"] = prefix_json["neighbor"]["update"]["attribute"]["origin"]
-                                        else:
-                                            prefix["origin"] = ""
-
-                                        if "atomic-aggregate" in prefix_neighbor_update_attribute_keys:
-                                            prefix["atomic-aggregate"] = prefix_json["neighbor"]["update"]["attribute"]["atomic-aggregate"]
-                                        else:
-                                            prefix["atomic-aggregate"] = ""
-
-                                        if "aggregator" in prefix_neighbor_update_attribute_keys:
-                                            prefix["aggregator"] = prefix_json["neighbor"]["update"]["attribute"]["aggregator"]
-                                        else:
-                                            prefix["aggregator"] = ""
-
-                                        if "community" in prefix_neighbor_update_attribute_keys:
-                                            community_tmp = prefix_json["neighbor"]["update"]["attribute"]["community"]
-                                            prefix["community"] = ""
-
-                                            for i in range(0, len(community_tmp)):
-                                                prefix["community"] += str(community_tmp[i][0]) + ":" + str(community_tmp[i][1])
-
-                                                if i < (len(community_tmp) - 1):
-                                                    prefix["community"] += " "
-                                        else:
-                                            prefix["community"] = ""
-
-                                        if "extended-community" in prefix_neighbor_update_attribute_keys:
-                                            extended_community_tmp = prefix_json["neighbor"]["update"]["attribute"]["extended-community"]
-                                            prefix["extended-community"] = ""
-
-                                            for i in range(0, len(extended_community_tmp)):
-                                                if (extended_community_tmp[i][0] == 0x03) or (extended_community_tmp[i][0] == 0x43):
-                                                    prefix["extended-community"] += "rte-type:"
-                                                    prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
-                                                    prefix["extended-community"] += ":" + str(extended_community_tmp[i][6]) + ":" + str(extended_community_tmp[i][7])
-
-                                                elif ((extended_community_tmp[i][0] == 0x00) or (extended_community_tmp[i][0] == 0x01) or (extended_community_tmp[i][0] == 0x02)) and (extended_community_tmp[i][1] == 0x02):
-                                                    prefix["extended-community"] += "target:"
-                                                    if (extended_community_tmp[i][0] == 0x00):
-                                                        prefix["extended-community"] += str(extended_community_tmp[i][2] * 256 + extended_community_tmp[i][3])
-                                                        prefix["extended-community"] += ":" + str(extended_community_tmp[i][4] * 16777216 + extended_community_tmp[i][5] * 65536 + extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
-                                                    elif (extended_community_tmp[i][0] == 0x01):
-                                                        prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
-                                                        prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
-                                                    else:
-                                                        prefix["extended-community"] += str(extended_community_tmp[i][2] * 16777216 + extended_community_tmp[i][3] * 65536 + extended_community_tmp[i][4] * 256 + extended_community_tmp[i][5]) + "L"
-                                                        prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
-
-                                                elif ((extended_community_tmp[i][0] == 0x00) or (extended_community_tmp[i][0] == 0x01) or (extended_community_tmp[i][0] == 0x02)) and (extended_community_tmp[i][1] == 0x03):
-                                                    prefix["extended-community"] += "origin:"
-                                                    if (extended_community_tmp[i][0] == 0x00):
-                                                        prefix["extended-community"] += str(extended_community_tmp[i][2] * 256 + extended_community_tmp[i][3])
-                                                        prefix["extended-community"] += ":" + str(extended_community_tmp[i][4] * 16777216 + extended_community_tmp[i][5] * 65536 + extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
-                                                    elif (extended_community_tmp[i][0] == 0x01):
-                                                        prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
-                                                        prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
-                                                    else:
-                                                        prefix["extended-community"] += str(extended_community_tmp[i][2] * 16777216 + extended_community_tmp[i][3] * 65536 + extended_community_tmp[i][4] * 256 + extended_community_tmp[i][5]) + "L"
-                                                        prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
-
-                                                if i < (len(extended_community_tmp) - 1):
-                                                    prefix["extended-community"] += " "
-                                        else:
-                                            prefix["extended-community"] = ""
-
-                                        if "as-path" in prefix_neighbor_update_attribute_keys:
-                                            as_path_tmp = prefix_json["neighbor"]["update"]["attribute"]["as-path"]
-                                            prefix["as-path"] = ""
-
-                                            for i in range(0, len(as_path_tmp)):
-                                                prefix["as-path"] += str(as_path_tmp[i])
-
-                                                if i < (len(as_path_tmp) - 1):
-                                                    prefix["as-path"] += " "
-                                                else:
-                                                    prefix["originas"] = str(as_path_tmp[i])
-                                        else:
-                                            prefix["as-path"] = ""
-
-                                        if "as-set" in prefix_neighbor_update_attribute_keys:
-                                            as_set_tmp = prefix_json["neighbor"]["update"]["attribute"]["as-set"]
-                                            prefix["as-set"] = ""
-
-                                            for i in range(0, len(as_set_tmp)):
-                                                prefix["as-set"] += str(as_set_tmp[i])
-
-                                                if i < (len(as_set_tmp) - 1):
-                                                    prefix["as-set"] += " "
-                                        else:
-                                            prefix["as-set"] = ""
-
-                                        if "med" in prefix_neighbor_update_attribute_keys:
-                                            prefix["med"] = prefix_json["neighbor"]["update"]["attribute"]["med"]
-                                        else:
-                                            prefix["med"] = ""
-                            else:
-                                # if not announce and not withdraw then state is unknown
-                                prefix["state"] = "unknown"
-                    # process shutdown notification
-                    elif "notification" in prefix_keys:
-                        prefix["state"] = "shutdown"
-                    # if not neighbor update and not exabgp notification then state is unknown
-                    else:
-                        prefix["state"] = "unknown"
-
-                # unknown state received
+                # Check if the update received from exabgp has valid header.
+                if "exabgp" not in prefix_keys:
+                    Processing = False
                 else:
+                    prefix["time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
+                # Check if this is process, neighbor status change or a prefix update.
+                if Processing and "neighbor" in prefix_keys:
+                    prefix_neighbor_keys = prefix_json["neighbor"].keys()
+                    if prefix_json["type"] == "state" and "state" in prefix_neighbor_keys:
+                        prefix["state"] = prefix_json["neighbor"]["state"]
+                    else:
+                        prefix["state"] = prefix_json["type"]
+                    prefix["neighbor"] = prefix_json["neighbor"]["ip"]
+                elif Processing and prefix_json["type"] == "notification" and "notification" in prefix_keys:
+                    prefix["state"] = prefix_json["notification"]
+                    Processing = False
+                else:
+                    # If not neighbor update and not exabgp notification then state is unknown.
                     prefix["state"] = "unknown"
+                    Processing = False
+
+                if Processing and "message" in prefix_neighbor_keys:
+                    prefix_message_keys = prefix_json["neighbor"]["message"].keys()
+                else:
+                    Processing = False
+
+                # Prefix update.
+                if Processing and "update" in prefix_message_keys and "ip" in prefix_neighbor_keys:
+                    prefix["neighbor"] = prefix_json["neighbor"]["ip"]
+                    prefix_message_update_keys = prefix_json["neighbor"]["message"]["update"].keys()
+                    if "." in prefix["neighbor"]:
+                        prefix["ip_type"] = 4
+                    else:
+                        prefix["ip_type"] = 6
+                else:
+                    Processing = False
+
+                if Processing:
+                    prefix["route"] = {}
+                    prefix["subnet"] = {}
+                    prefix["ip_start"] = {}
+                    prefix["ip_end"] = {}
+                    prefix["poly"] = {}
+
+                # Prefix withdrawal.
+                if Processing and "withdraw" in prefix_message_update_keys:
+                    prefix["state"] = "withdraw"
+                    prefix_message_update_withdraw_keys = prefix_json["neighbor"]["message"]["update"]["withdraw"].keys()
+                    prefix_inet = prefix_message_update_withdraw_keys[0]
+                    prefix_message_update_withdraw_routes_keys = prefix_json["neighbor"]["message"]["update"]["withdraw"][prefix_inet].keys()
+
+                    i = 0
+                    for route in prefix_message_update_withdraw_routes_keys:
+                        prefix["route"][i] = route
+                        x = route.find("/")
+                        prefix["subnet"][i] = int(route[x + 1:])
+
+                        i += 1
+
+                    Processing = False
+
+                # Prefix announcement.
+                elif Processing and "announce" in prefix_message_update_keys:
+                    prefix["state"] = "announce"
+                    prefix_message_update_announce_keys = prefix_json["neighbor"]["message"]["update"]["announce"].keys()
+
+                    prefix_inet = prefix_message_update_announce_keys[0]
+                    prefix_message_update_announce_nexthop_keys = prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet].keys()
+                    prefix["next-hop"] = prefix_message_update_announce_nexthop_keys[0]
+                    prefix_message_update_announce_routes_key = prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet][prefix["next-hop"]].keys()
+
+                    i = 0
+                    for route in prefix_message_update_announce_routes_key:
+                        prefix["route"][i] = route
+                        x = route.find("/")
+                        prefix["subnet"][i] = int(route[x + 1:])
+                        prefix["ip_start"][i] = IP2int(route[:x])
+
+                        if prefix["ip_type"] == 4:
+                            prefix["ip_end"][i] = prefix["ip_start"][i] + (2 ** (32 - prefix["subnet"][i])) - 1
+                        else:
+                            prefix["ip_end"][i] = prefix["ip_start"][i] + (2 ** (128 - prefix["subnet"][i])) - 1
+                        prefix["poly"][i] = "GEOMFROMWKB(POLYGON(LINESTRING(POINT({0}, -1), POINT({1}, -1), POINT({2}, 1), POINT({3}, 1), POINT({4}, -1))))".format(prefix["ip_start"][i], prefix["ip_end"][i], prefix["ip_end"][i], prefix["ip_start"][i], prefix["ip_start"][i])
+
+                        i += 1
+
+                else:
+                    if not (prefix["state"] == "connected" or prefix["state"] == "up" or prefix["state"] == "down" or prefix["state"] == "shutdown"):
+                        # if not announce and not withdraw then state is unknown
+                        prefix["state"] = "unknown"
+                        Processing = False
+
+                if Processing and "attribute" in prefix_message_update_keys:
+                    prefix_message_update_attribute_keys = prefix_json["neighbor"]["message"]["update"]["attribute"].keys()
+                else:
+                    Processing = False
+
+                if Processing and "origin" in prefix_message_update_attribute_keys:
+                    prefix["origin"] = prefix_json["neighbor"]["message"]["update"]["attribute"]["origin"]
+                else:
+                    prefix["origin"] = ""
+
+                if Processing and "atomic-aggregate" in prefix_message_update_attribute_keys:
+                    prefix["atomic-aggregate"] = prefix_json["neighbor"]["message"]["update"]["attribute"]["atomic-aggregate"]
+                else:
+                    prefix["atomic-aggregate"] = ""
+
+                if Processing and "aggregator" in prefix_message_update_attribute_keys:
+                    prefix["aggregator"] = prefix_json["neighbor"]["message"]["update"]["attribute"]["aggregator"]
+                else:
+                    prefix["aggregator"] = ""
+
+                if Processing and "community" in prefix_message_update_attribute_keys:
+                    community_tmp = prefix_json["neighbor"]["message"]["update"]["attribute"]["community"]
+                    prefix["community"] = ""
+
+                    for i in range(0, len(community_tmp)):
+                        prefix["community"] += str(community_tmp[i][0]) + ":" + str(community_tmp[i][1])
+
+                        if i < (len(community_tmp) - 1):
+                            prefix["community"] += " "
+                else:
+                    prefix["community"] = ""
+
+                if Processing and "extended-community" in prefix_message_update_attribute_keys:
+                    extended_community_tmp = prefix_json["neighbor"]["message"]["update"]["attribute"]["extended-community"]
+                    prefix["extended-community"] = ""
+
+                    logging.info("GIXLG: worker / %s" % (extended_community_tmp))
+
+                    for i in range(0, len(extended_community_tmp)):
+                        prefix["extended-community"] += str(extended_community_tmp[i])
+
+                    #    if (extended_community_tmp[i][0] == 0x03) or (extended_community_tmp[i][0] == 0x43):
+                    #        prefix["extended-community"] += "rte-type:"
+                    #        prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
+                    #        prefix["extended-community"] += ":" + str(extended_community_tmp[i][6]) + ":" + str(extended_community_tmp[i][7])
+
+                    #    elif ((extended_community_tmp[i][0] == 0x00) or (extended_community_tmp[i][0] == 0x01) or (extended_community_tmp[i][0] == 0x02)) and (extended_community_tmp[i][1] == 0x02):
+                    #        prefix["extended-community"] += "target:"
+                    #        if (extended_community_tmp[i][0] == 0x00):
+                    #            prefix["extended-community"] += str(extended_community_tmp[i][2] * 256 + extended_community_tmp[i][3])
+                    #            prefix["extended-community"] += ":" + str(extended_community_tmp[i][4] * 16777216 + extended_community_tmp[i][5] * 65536 + extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+                    #        elif (extended_community_tmp[i][0] == 0x01):
+                    #            prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
+                    #            prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+                    #        else:
+                    #            prefix["extended-community"] += str(extended_community_tmp[i][2] * 16777216 + extended_community_tmp[i][3] * 65536 + extended_community_tmp[i][4] * 256 + extended_community_tmp[i][5]) + "L"
+                    #            prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+
+                    #    elif ((extended_community_tmp[i][0] == 0x00) or (extended_community_tmp[i][0] == 0x01) or (extended_community_tmp[i][0] == 0x02)) and (extended_community_tmp[i][1] == 0x03):
+                    #        prefix["extended-community"] += "origin:"
+                    #        if (extended_community_tmp[i][0] == 0x00):
+                    #            prefix["extended-community"] += str(extended_community_tmp[i][2] * 256 + extended_community_tmp[i][3])
+                    #            prefix["extended-community"] += ":" + str(extended_community_tmp[i][4] * 16777216 + extended_community_tmp[i][5] * 65536 + extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+                    #        elif (extended_community_tmp[i][0] == 0x01):
+                    #            prefix["extended-community"] += str(extended_community_tmp[i][2]) + "." + str(extended_community_tmp[i][3]) + "." + str(extended_community_tmp[i][4]) + "." + str(extended_community_tmp[i][5])
+                    #            prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+                    #        else:
+                    #            prefix["extended-community"] += str(extended_community_tmp[i][2] * 16777216 + extended_community_tmp[i][3] * 65536 + extended_community_tmp[i][4] * 256 + extended_community_tmp[i][5]) + "L"
+                    #            prefix["extended-community"] += ":" + str(extended_community_tmp[i][6] * 256 + extended_community_tmp[i][7])
+
+                        if i < (len(extended_community_tmp) - 1):
+                            prefix["extended-community"] += " "
+
+                else:
+                    prefix["extended-community"] = ""
+
+                if Processing and "as-path" in prefix_message_update_attribute_keys:
+                    as_path_tmp = prefix_json["neighbor"]["message"]["update"]["attribute"]["as-path"]
+                    prefix["as-path"] = ""
+
+                    for i in range(0, len(as_path_tmp)):
+                        prefix["as-path"] += str(as_path_tmp[i])
+
+                        if i < (len(as_path_tmp) - 1):
+                            prefix["as-path"] += " "
+                        else:
+                            prefix["originas"] = str(as_path_tmp[i])
+                else:
+                    prefix["as-path"] = ""
+
+                if Processing and "as-set" in prefix_message_update_attribute_keys:
+                    as_set_tmp = prefix_json["neighbor"]["message"]["update"]["attribute"]["as-set"]
+                    prefix["as-set"] = ""
+
+                    for i in range(0, len(as_set_tmp)):
+                        prefix["as-set"] += str(as_set_tmp[i])
+
+                        if i < (len(as_set_tmp) - 1):
+                            prefix["as-set"] += " "
+                else:
+                    prefix["as-set"] = ""
+
+                if Processing and "med" in prefix_message_update_attribute_keys:
+                    prefix["med"] = prefix_json["neighbor"]["message"]["update"]["attribute"]["med"]
+                else:
+                    prefix["med"] = ""
+
+                Processing = False
+
+                logging.info("GIXLG: worker / %s" % (prefix))
+
+                # End of decoding ExaBGP message.
 
                 if config["mysql_enable"] and config["mysql_ping"]:
                     mydb.ping(True)
 
-                neighbor = prefix["neighbor"]
+                if prefix["state"] != "shutdown" and prefix["state"] != "unknown":
+                    neighbor = prefix["neighbor"]
+
                 if prefix["state"] == "connected":
                     if config["debug"]:
                         logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor)
@@ -629,7 +666,7 @@ def Collector_Worker():
                     log_prefixes = ""
                     for i in range(0, len(prefix["route"])):
                         if config["prefix_cache"]:
-                            # check if the prefix exists in the prefix_cache tabl
+                            # Check if the prefix exists in the prefix_cache table.
                             prefix_node = prefix_cache.search_exact(prefix["route"][i])
                             if prefix_node is not None:
                                 if prefix_node.data.get(neighbor, 0) == 1:
@@ -727,8 +764,6 @@ def Collector_Worker():
                     if config["debug"]:
                         logging.info("GIXLG: collector / unknown ExaBGP update")
 
-                collector_queue.task_done()
-
         except Queue.Empty:
             if config["debug"]:
                 logging.info("GIXLG: collector queue empty")
@@ -739,8 +774,7 @@ def Collector_Worker():
                 logging.info("GIXLG: collector / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
                 if 'prefix' in globals():
                     logging.info(str(prefix))
-            Running = False
-            os._exit(1)
+            pass
 
         except:
             if config["debug"]:
@@ -748,8 +782,12 @@ def Collector_Worker():
                 logging.info("GIXLG: collector / exception: " + e)
                 if 'prefix' in globals():
                     logging.info(str(prefix))
-            Running = False
-            os._exit(1)
+            pass
+
+    if config["mysql_enable"]:
+        cursor.close()
+        mydb.close()
+
 
 if __name__ == "__main__":
     if len(sys.argv) == 2 or len(sys.argv) == 3:
@@ -761,6 +799,19 @@ if __name__ == "__main__":
                     else:
                         logging.basicConfig(level=logging.DEBUG, filename=config["log_file"])
                     logging.info("GIXLG: main / start")
+
+                if config["mysql_enable"]:
+                    mydb = MySQLdb.connect(host=config["mysql_host"], db=config["mysql_db"], user=config["mysql_user"], passwd=config["mysql_pass"], unix_socket=config["mysql_sock"], connect_timeout=config["mysql_timeout"])
+                    cursor = mydb.cursor()
+                    cursor.execute("TRUNCATE prefixes")
+                    cursor.execute(
+                        """\
+                        UPDATE `members` SET `status`='0',`time`='0000-00-00 00:00:00',
+                        `lastup`='0000-00-00 00:00:00',`lastdown`='0000-00-00 00:00:00',
+                        `prefixes`='0',`updown`='0'"""
+                    )
+                    cursor.close()
+                    mydb.close()
 
                 lock = RLock()
                 collector_queue = Queue.Queue(maxsize=config['collector_queue'])
@@ -808,8 +859,8 @@ if __name__ == "__main__":
                 if config["debug"]:
                     e = str(sys.exc_info())
                     logging.info("GIXLG: main / exception: " + e)
-                Running = False
-                os._exit(1)
+                pass
+
     else:
         print "The code is not design to run as a standalone process and can be used only as `process parsed-route-backend` in ExaBGP."
         print "an example: run %s exabgp [log file suffix]" % sys.argv[0]
