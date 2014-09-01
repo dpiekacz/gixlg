@@ -13,7 +13,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<title>GIX looking glass</title>
+<title><?php echo $gixlg['website_title']; ?></title>
 <script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
 <script type="text/javascript" src="lib/popup-ioshack.js"></script>
 <link href="lib/gixlg.css" rel="stylesheet" type="text/css" />
