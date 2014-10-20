@@ -29,7 +29,7 @@
 </thead>
 <tfoot>
 <tr>
-<td colspan="2"><em><a href="http://gixtools.net">GIXLG</a> - Copyright &copy; GIXtools</em></td>
+<td colspan="2"><em><a href="http://gixtools.net/gix/looking-glass/">GIXLG</a> - Copyright &copy; <a href="http://gixtools.net">GIXtools</a></em></td>
 </tr>
 </tfoot>
 <tbody>

@@ -3,7 +3,7 @@
 Created by Daniel Piekacz on 2012-01-14.
 Last update on 2014-07-25.
 Copyright (c) 2014 Daniel Piekacz. All rights reserved.
-Project website: gix.net.pl, e-mail: daniel@piekacz.tel
+Project website: https://gixtools.net, e-mail: daniel@piekacz.net
 """
 import os
 import sys
