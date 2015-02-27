@@ -1,3 +1,4 @@
+- ZeroMQ support to enable the collector to connect directly to GIXflow2 "hub" process
 - BGP Additional Paths support
 - Multiprotocol BGP (MP-BGP) support with Route Distinguishers parsing
 - Extended community with Route Targets parsing
