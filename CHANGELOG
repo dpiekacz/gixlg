@@ -3,7 +3,7 @@ Version explained:
  minor : increase on new features
  bug   : increase on bug fixes
 
-Version 2.1.1 - 27th of February 2015 (tested with ExaBGP 3.4.8)
+Version 2.1.1 - 27th of February 2015 (tested with Python 2.7.9, ExaBGP 3.4.8)
  - Fix: string conversion when handling "state up" notifications.
  - Fix: handling empty BGP updates with EOR marker.
  - Feature: option to ignore default routes
