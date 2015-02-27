@@ -3,9 +3,14 @@ Version explained:
  minor : increase on new features
  bug   : increase on bug fixes
 
+Version 2.1.1 - 27th of February 2015 (tested with ExaBGP 3.4.8)
+ - Fix: string conversion when handling "state up" notifications.
+ - Fix: handling empty BGP updates with EOR marker.
+ - Feature: option to ignore default routes
+
 Version 2.1.0 - 25th of July 2014
- - Rewriting code to support the new format of JSON messages received from ExaBGP 3.4
- - Changes in ExaBGP config file.
+ - Change: Rewriting code to support the new format of JSON messages received from ExaBGP 3.4.
+ - Improvement: Changes in ExaBGP config file.
 
 Version 2.0.0 - 24th of May 2014
  - Implementing multithreading. A few threads can process updates received from ExaBGP.

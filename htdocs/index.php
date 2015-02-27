@@ -14,7 +14,7 @@
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <title><?php echo $gixlg['website_title']; ?></title>
-<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
 <script type="text/javascript" src="lib/popup-ioshack.js"></script>
 <link href="lib/gixlg.css" rel="stylesheet" type="text/css" />
 </head>
@@ -29,7 +29,7 @@
 </thead>
 <tfoot>
 <tr>
-<td colspan="2"><em><a href="http://gixtools.net/gix/looking-glass/">GIXLG</a> - Copyright &copy; <a href="http://gixtools.net">GIXtools</a></em></td>
+<td colspan="2"><em><a href="https://gixtools.net/gix/looking-glass/">GIXLG</a> - Copyright &copy; <a href="https://gixtools.net">GIXtools</a></em></td>
 </tr>
 </tfoot>
 <tbody>

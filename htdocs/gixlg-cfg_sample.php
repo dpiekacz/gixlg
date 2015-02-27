@@ -3,6 +3,7 @@
 $gixlg['website_title'] = 'GIX Looking Glass';
 $gixlg['mode'] = 'lg';
 $gixlg['ix_mode'] = false;
+$gixlg['ignore_default_routes'] = true;
 
 // database auth parameters
 $gixlg['db_host'] = 'localhost';

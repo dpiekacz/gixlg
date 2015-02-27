@@ -1,0 +1,5 @@
+- BGP Additional Paths support
+- Multiprotocol BGP (MP-BGP) support with Route Distinguishers parsing
+- Extended community with Route Targets parsing
+- iBGP support
+- RPKI support (Route Origin Authorisations validation)

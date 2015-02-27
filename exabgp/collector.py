@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """
 Created by Daniel Piekacz on 2012-01-14.
-Last update on 2014-07-25.
-Copyright (c) 2014 Daniel Piekacz. All rights reserved.
+Last update on 2015-02-27.
+Copyright (c) 2015 Daniel Piekacz. All rights reserved.
 Project website: https://gixtools.net, e-mail: daniel@piekacz.net
 """
 import os
@@ -29,14 +29,11 @@ config["mysql_timeout"] = 0
 # True/False - Check if MySQL connection is still live. That significantly can
 # reduce overall performance.
 config["mysql_ping"] = False
-
-# Web interface - Not yet implemented.
-config["http_enable"] = False
-config["http_ip"] = "127.0.0.1"
-config["http_port"] = 10001
+# True/False - Truncate the table with prefixes when the collector starts.
+config["mysql_truncate"] = False
 
 # Nb of collector threads.
-config["collector_threads"] = 4
+config["collector_threads"] = 1
 # Size of collector queue.
 config["collector_queue"] = 10000
 
@@ -119,18 +116,20 @@ def Stats_Worker():
                             )
                         )
 
-                logging.info("GIXLG: stats / update")
+                if config["debug"]:
+                    logging.info("GIXLG: stats / update")
+
                 time.sleep(config["stats_refresh"])
 
         except MySQLdb.Error, e:
             if config["debug"]:
-                logging.info("GIXLG: stats / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
+                logging.exception("GIXLG: stats / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
             pass
 
         except:
             if config["debug"]:
                 e = str(sys.exc_info())
-                logging.info("GIXLG: stats / exception: " + e)
+                logging.exception("GIXLG: stats / exception: " + e)
             pass
 
     if config["mysql_enable"]:
@@ -172,7 +171,7 @@ def Collector_Worker():
                 # Check if this is process, neighbor status change or a prefix update.
                 if Processing and "neighbor" in prefix_keys:
                     prefix_neighbor_keys = prefix_json["neighbor"].keys()
-                    if prefix_json["type"] == "state" and "state" in prefix_neighbor_keys:
+                    if "type" in prefix_keys and prefix_json["type"] == "state" and "state" in prefix_neighbor_keys:
                         prefix["state"] = prefix_json["neighbor"]["state"]
                     else:
                         prefix["state"] = prefix_json["type"]
@@ -232,23 +231,27 @@ def Collector_Worker():
 
                     prefix_inet = prefix_message_update_announce_keys[0]
                     prefix_message_update_announce_nexthop_keys = prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet].keys()
-                    prefix["next-hop"] = prefix_message_update_announce_nexthop_keys[0]
-                    prefix_message_update_announce_routes_key = prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet][prefix["next-hop"]].keys()
+                    if "null" in prefix_message_update_announce_nexthop_keys:
+                        prefix["state"] = "unknown"
+                        Processing = False
+                    else:
+                        prefix["next-hop"] = prefix_message_update_announce_nexthop_keys[0]
+                        prefix_message_update_announce_routes_key = prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet][prefix["next-hop"]].keys()
 
-                    i = 0
-                    for route in prefix_message_update_announce_routes_key:
-                        prefix["route"][i] = route
-                        x = route.find("/")
-                        prefix["subnet"][i] = int(route[x + 1:])
-                        prefix["ip_start"][i] = IP2int(route[:x])
+                        i = 0
+                        for route in prefix_message_update_announce_routes_key:
+                            prefix["route"][i] = route
+                            x = route.find("/")
+                            prefix["subnet"][i] = int(route[x + 1:])
+                            prefix["ip_start"][i] = IP2int(route[:x])
 
-                        if prefix["ip_type"] == 4:
-                            prefix["ip_end"][i] = prefix["ip_start"][i] + (2 ** (32 - prefix["subnet"][i])) - 1
-                        else:
-                            prefix["ip_end"][i] = prefix["ip_start"][i] + (2 ** (128 - prefix["subnet"][i])) - 1
-                        prefix["poly"][i] = "GEOMFROMWKB(POLYGON(LINESTRING(POINT({0}, -1), POINT({1}, -1), POINT({2}, 1), POINT({3}, 1), POINT({4}, -1))))".format(prefix["ip_start"][i], prefix["ip_end"][i], prefix["ip_end"][i], prefix["ip_start"][i], prefix["ip_start"][i])
+                            if prefix["ip_type"] == 4:
+                                prefix["ip_end"][i] = prefix["ip_start"][i] + (2 ** (32 - prefix["subnet"][i])) - 1
+                            else:
+                                prefix["ip_end"][i] = prefix["ip_start"][i] + (2 ** (128 - prefix["subnet"][i])) - 1
+                            prefix["poly"][i] = "GEOMFROMWKB(POLYGON(LINESTRING(POINT({0}, -1), POINT({1}, -1), POINT({2}, 1), POINT({3}, 1), POINT({4}, -1))))".format(prefix["ip_start"][i], prefix["ip_end"][i], prefix["ip_end"][i], prefix["ip_start"][i], prefix["ip_start"][i])
 
-                        i += 1
+                            i += 1
 
                 else:
                     if not (prefix["state"] == "connected" or prefix["state"] == "up" or prefix["state"] == "down" or prefix["state"] == "shutdown"):
@@ -292,7 +295,8 @@ def Collector_Worker():
                     extended_community_tmp = prefix_json["neighbor"]["message"]["update"]["attribute"]["extended-community"]
                     prefix["extended-community"] = ""
 
-                    logging.info("GIXLG: worker / %s" % (extended_community_tmp))
+                    if config["debug"]:
+                        logging.info("GIXLG: worker / %s" % (extended_community_tmp))
 
                     for i in range(0, len(extended_community_tmp)):
                         prefix["extended-community"] += str(extended_community_tmp[i])
@@ -365,7 +369,8 @@ def Collector_Worker():
 
                 Processing = False
 
-                logging.info("GIXLG: worker / %s" % (prefix))
+                if config["debug"]:
+                    logging.info("GIXLG: worker / %s" % (prefix))
 
                 # End of decoding ExaBGP message.
 
@@ -393,7 +398,7 @@ def Collector_Worker():
                     if config["mysql_enable"]:
                         cursor.execute(
                             "DELETE FROM prefixes WHERE (neighbor = %s)",
-                            (neighbor)
+                            [neighbor]
                         )
                         if config["stats_delayed"]:
                             with lock:
@@ -404,10 +409,10 @@ def Collector_Worker():
                         else:
                             cursor.execute(
                                 "UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=1,updown=updown+1,lastup=%s WHERE neighbor=%s",
-                                (
+                                [
                                     prefix["time"],
                                     neighbor
-                                )
+                                ]
                             )
 
                 elif prefix["state"] == "down":
@@ -656,6 +661,7 @@ def Collector_Worker():
                                                 neighbor
                                             )
                                         )
+
                     if config["debug"]:
                         logging.info(log_prefixes)
 
@@ -771,17 +777,17 @@ def Collector_Worker():
 
         except MySQLdb.Error, e:
             if config["debug"]:
-                logging.info("GIXLG: collector / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
+                logging.exception("GIXLG: collector / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
                 if 'prefix' in globals():
-                    logging.info(str(prefix))
+                    logging.exception(str(prefix))
             pass
 
         except:
             if config["debug"]:
                 e = str(sys.exc_info())
-                logging.info("GIXLG: collector / exception: " + e)
+                logging.exception("GIXLG: collector / exception: " + e)
                 if 'prefix' in globals():
-                    logging.info(str(prefix))
+                    logging.exception(str(prefix))
             pass
 
     if config["mysql_enable"]:
@@ -798,9 +804,10 @@ if __name__ == "__main__":
                         logging.basicConfig(level=logging.DEBUG, filename=config["log_file"] + "_" + sys.argv[2])
                     else:
                         logging.basicConfig(level=logging.DEBUG, filename=config["log_file"])
+
                     logging.info("GIXLG: main / start")
 
-                if config["mysql_enable"]:
+                if config["mysql_enable"] and config["mysql_truncate"]:
                     mydb = MySQLdb.connect(host=config["mysql_host"], db=config["mysql_db"], user=config["mysql_user"], passwd=config["mysql_pass"], unix_socket=config["mysql_sock"], connect_timeout=config["mysql_timeout"])
                     cursor = mydb.cursor()
                     cursor.execute("TRUNCATE prefixes")
@@ -846,19 +853,19 @@ if __name__ == "__main__":
 
             except Queue.Full:
                 if config["debug"]:
-                    logging.info("GIXLG: collector queue full")
+                    logging.warning("GIXLG: collector queue full")
                 pass
 
             except KeyboardInterrupt:
                 if config["debug"]:
-                    logging.info("GIXLG: main / keyboard interrupt")
+                    logging.exception("GIXLG: main / keyboard interrupt")
                 Running = False
                 os._exit(1)
 
             except:
                 if config["debug"]:
                     e = str(sys.exc_info())
-                    logging.info("GIXLG: main / exception: " + e)
+                    logging.exception("GIXLG: main / exception: " + e)
                 pass
 
     else:
