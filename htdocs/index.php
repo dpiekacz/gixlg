@@ -52,13 +52,11 @@
     <input type="text" name="argument" placeholder="argument" class="form-control input-sm" value="<?php if (array_key_exists('argument', $_REQUEST)) { echo safeOutput(trim($_REQUEST['argument'])); } ?>" />
     <button type="submit" class="btn btn-default">Execute</button>
    </div>
-   <br/><br/>
   </form>
+ </div>
 
-  <div class="container-fluid">
-   <?php gixlg_execsqlrequest($router, $request); ?>
-  </div>
-
+ <div class="container-fluid">
+  <?php gixlg_execsqlrequest($router, $request); ?>
  </div>
 
  <footer>

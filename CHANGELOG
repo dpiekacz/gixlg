@@ -8,6 +8,8 @@ Version 2.1.2 - 28 of February 2015 (tested with Python 2.7.9, PHP 5.5.22, ExaBG
  - Improvement: HTML code has been modified to be HTML5 compliant.
  - Fix: use MySQLi extension instead of MySQL which is deprecated in PHP 5.5.x.
  - Fix: code corrections to remove PHP warnings.
+ - Feature: adding an option to generate graphs in svg format.
+ - Change: increase fixed image size from 1000 to 1200px.
 
 Version 2.1.1 - 27th of February 2015 (tested with Python 2.7.9, PHP 5.5.22, ExaBGP 3.4.8)
  - Fix: string conversion when handling "state up" notifications.

@@ -265,7 +265,7 @@ function gixlg_execsqlrequest($router, $request)
   if ($gixlg['flex_image_size']) {
    echo "<br/><img src=\"gixlg-map.php?prefix=" . $argument . "\" alt=\"gixlg-map\"/>";
   } else {
-   echo "<br/><img width=\"1000\" src=\"gixlg-map.php?prefix=" . $argument . "\" alt=\"gixlg-map\"/>";
+   echo "<br/><img width=\"1200\" src=\"gixlg-map.php?prefix=" . $argument . "\" alt=\"gixlg-map\"/>";
   }
  }
 ?>

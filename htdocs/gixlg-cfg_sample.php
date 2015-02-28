@@ -15,12 +15,13 @@ $gixlg['db_database'] = 'gixlg';
 // to have here: ('radio'/'select')
 $gixlg['list_style'] = 'select';
 
-// true = graph can extend without limit, false = graph is fixed to 1000px width
-$gixlg['flex_image_size'] = true;
+// true = graph can extend without limit, false = graph is fixed to 1200px width
+$gixlg['flex_image_size'] = false;
 
 // method of generation the graphviz maps
 // direct - will call graphviz:image function directly
 // cmd - will call dot processor by cmd line
+// cmd_svg - will call dot processor by cmd line to generate a svg file
 $gixlg['graphviz_mode'] = 'direct';
 
 // default values for all routers, used if there is no more specific setting

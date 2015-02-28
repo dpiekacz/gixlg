@@ -31,7 +31,7 @@
   $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))))");
  }
 
- $graph = array('edgesFrom'=>array(),'nodes'=>array(),'attributes'=>array(),'clusters'=>array(),'subgraphs'=>array(),'bgcolor'=>'#e8edff');
+ $graph = array('edgesFrom'=>array(),'nodes'=>array(),'attributes'=>array(),'clusters'=>array(),'subgraphs'=>array(),'bgcolor'=>'#ffffff');
  $gv = new Image_GraphViz(true, $graph);
  while ($d = mysqli_fetch_assoc($res)) {
 // for each record check if we know that neighbor
@@ -150,7 +150,7 @@
      $as_path = explode(" ", $as_path_tmp);
 
      $as_s = $as_mem_e;
-//     $as_s = $d_node['vendor'];
+     // $as_s = $d_node['vendor'];
 
      foreach ($as_path as &$as) {
       $as_e_tmp = "AS" . $as;
@@ -168,15 +168,23 @@
  }
  mysqli_close($mid);
 
-// Direct function call
- if ($gixlg['graphviz_mode']=='direct') {
-  $gv->image('jpg');
- }
+ switch ($gixlg['graphviz_mode']) {
+  // Direct function call
+  case "direct":
+   $gv->image('jpg');
+   break;
 
-// Executing dot parser from cmd line
- if ($gixlg['graphviz_mode']=='cmd') {
-  $dot = $gv->parse();
-  header("Content-type: image/jpg");
-  passthru("echo '$dot' | /usr/local/bin/dot -Tjpg");
+  // Executing dot parser from cmd line
+  case "cmd":
+   $dot = $gv->parse();
+   header("Content-type: image/jpg");
+   passthru("echo '$dot' | /usr/local/bin/dot -Tjpg");
+   break;
+
+  case "cmd_svg":
+   $dot = $gv->parse();
+   header("Content-type: image/svg+xml");
+   passthru("echo '$dot' | /usr/local/bin/dot -Tsvg");
+   break;
  }
 ?>
