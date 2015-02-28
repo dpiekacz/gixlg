@@ -3,10 +3,16 @@ Version explained:
  minor : increase on new features
  bug   : increase on bug fixes
 
-Version 2.1.1 - 27th of February 2015 (tested with Python 2.7.9, ExaBGP 3.4.8)
+Version 2.1.2 - 28 of February 2015 (tested with Python 2.7.9, PHP 5.5.22, ExaBGP 3.4.8)
+ - Change: Adding Bootstrap as a front-end framework.
+ - Improvement: HTML code has been modified to be HTML5 compliant.
+ - Fix: use MySQLi extension instead of MySQL which is deprecated in PHP 5.5.x.
+ - Fix: code corrections to remove PHP warnings.
+
+Version 2.1.1 - 27th of February 2015 (tested with Python 2.7.9, PHP 5.5.22, ExaBGP 3.4.8)
  - Fix: string conversion when handling "state up" notifications.
  - Fix: handling empty BGP updates with EOR marker.
- - Feature: option to ignore default routes
+ - Feature: adding an option to ignore default routes.
 
 Version 2.1.0 - 25th of July 2014
  - Change: Rewriting code to support the new format of JSON messages received from ExaBGP 3.4.

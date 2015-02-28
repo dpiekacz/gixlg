@@ -8,43 +8,65 @@
   printError('Oops. This installation misses a configuration file (gixlg-cfg.php)');
   die();
  }
+ header("Cache-Control: no-cache, must-revalidate");
+ header("Expires: Sat, 01 Jan 2000 00:00:00 GMT");
+ if (isset($_SERVER['HTTP_USER_AGENT']) && (strpos($_SERVER['HTTP_USER_AGENT'], 'MSIE') !== false)) header('X-UA-Compatible: IE=edge,chrome=1');
 ?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<title><?php echo $gixlg['website_title']; ?></title>
-<script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/2.1.3/jquery.min.js"></script>
-<script type="text/javascript" src="lib/popup-ioshack.js"></script>
-<link href="lib/gixlg.css" rel="stylesheet" type="text/css" />
+    <meta charset="utf-8">
+    <title><?php echo $gixlg['website_title']; ?></title>
+    <meta name="description" content="">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.2/css/bootstrap-theme.min.css">
+    <link rel="stylesheet" href="lib/nhpup_1.1.css">
+    <link rel="icon" href="lib/favicon.ico">
+    <!--[if lt IE 9]>
+     <script type="text/javascript" src="//oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
+     <script type="text/javascript" src="//oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
+    <![endif]-->
 </head>
-<body>
-<center>
-<form method="post" action="./">
-<table id="hor-minimalist-a">
-<thead>
-<tr>
-<th colspan="2"><center><?php echo $gixlg['website_title']; ?></center></th>
-</tr>
-</thead>
-<tfoot>
-<tr>
-<td colspan="2"><em><a href="https://gixtools.net/gix/looking-glass/">GIXLG</a> - Copyright &copy; <a href="https://gixtools.net">GIXtools</a></em></td>
-</tr>
-</tfoot>
-<tbody>
-<tr>
- <td align="right" width="50%"><b>router</b><br/><?php gixlg_routerlist($router, $gixlg['list_style']); ?></td>
- <td align="left" width="50%"><b>request</b><br/><?php gixlg_requestlist($request, $gixlg['list_style']); ?></td>
-</tr>
-<tr>
- <td align="right" width="50%"><b>argument</b><br/><input type="text" name="argument" maxlength="50" value="<?php echo safeOutput(trim($_REQUEST["argument"])); ?>"/></td>
- <td align="left" width="50%"><br/><input type="submit" value="Execute"/></td>
-</tr>
-<tr><td colspan="2"><?php gixlg_execsqlrequest($router, $request); ?></td></tr>
-</tbody>
-</table>
-</form>
-</center>
+
+<body role="document">
+ <nav class="navbar navbar-default">
+  <div class="container-fluid">
+   <div class="navbar-header">
+    <button type="button" class="navbar-toggle collapsed" data-toggle="collapse" data-target=".navbar-collapse">
+     <span class="sr-only">Toggle navigation</span>
+     <span class="icon-bar"></span>
+     <span class="icon-bar"></span>
+     <span class="icon-bar"></span>
+    </button>
+    <a class="navbar-brand" href="https://gixtools.net/"><?php echo $gixlg['website_title']; ?></a>
+   </div>
+  </div>
+ </nav>
+
+ <div class="well">
+  <form class="form-inline" role="form" method="post" action="./">
+   <div class="form-group">
+    <?php gixlg_routerlist($router, $gixlg['list_style']); ?>
+    <?php gixlg_requestlist($request, $gixlg['list_style']); ?>
+    <input type="text" name="argument" placeholder="argument" class="form-control input-sm" value="<?php if (array_key_exists('argument', $_REQUEST)) { echo safeOutput(trim($_REQUEST['argument'])); } ?>" />
+    <button type="submit" class="btn btn-default">Execute</button>
+   </div>
+   <br/><br/>
+  </form>
+
+  <div class="container-fluid">
+   <?php gixlg_execsqlrequest($router, $request); ?>
+  </div>
+
+ </div>
+
+ <footer>
+  <p style="text-align:center"><a href="https://gixtools.net/gix/looking-glass/">GIXLG</a> - Copyright &copy; <a href="https://gixtools.net">GIXtools</a></p>
+ </footer>
+
+ <script type="text/javascript" src="//ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+ <script type="text/javascript" src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.2/js/bootstrap.min.js"></script>
+ <script type="text/javascript" src="lib/nhpup_1.1.js"></script>
 </body>
 </html>

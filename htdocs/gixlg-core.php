@@ -1,13 +1,13 @@
 <?php
 function gixlg_routerlist($router, $type)
 {
- if ($type == "select") echo "<select name=\"routerid\">";
+ if ($type == "select") echo "<select class=\"form-control\" name=\"routerid\">";
  while (list($id, $attribute) = each($router))
  if (strcmp($id, "default") && !empty($attribute["address"]))
  {
   if ($type == "select") echo "<option value=\"{$id}\"";
-  if ($type == "radio") echo "<input type=\"radio\" name=\"routerid\" value=\"{$id}\"";
-  if ($_REQUEST["routerid"] == $id)
+  if ($type == "radio") echo "<div class=\"radio\"><input type=\"radio\" name=\"routerid\" value=\"{$id}\"";
+  if (array_key_exists("routerid", $_REQUEST) && ($_REQUEST["routerid"] == $id))
   {
    if ($type == "select") echo " selected=\"selected\"";
    if ($type == "radio") echo " checked=\"checked\"";
@@ -15,20 +15,20 @@ function gixlg_routerlist($router, $type)
   echo ">";
   echo $attribute["title"] ? $attribute["title"] : $attribute["address"];
   if ($type == "select") echo "</option>\n";
-  if ($type == "radio") echo "</input><br/>\n";
+  if ($type == "radio") echo "</div>\n";
  }
- if ($type == "select") echo "</{$type}>\n";
+ if ($type == "select") echo "</select>\n";
 }
 
 function gixlg_requestlist($request, $type)
 {
- if ($type == "select") echo "<select name=\"requestid\">";
+ if ($type == "select") echo "<select class=\"form-control\" name=\"requestid\">";
  while (list($id, $attribute) = each($request))
  if (!empty($attribute["command"]) && !empty($attribute["handler"]) && isset($attribute["argc"]))
  {
   if ($type == "select") echo "<option value=\"{$id}\"";
-  if ($type == "radio") echo "<input type=\"radio\" name=\"requestid\" value=\"{$id}\"";
-  if ($_REQUEST["requestid"] == $id)
+  if ($type == "radio") echo "<div class=\"radio\"><input type=\"radio\" name=\"requestid\" value=\"{$id}\"";
+  if (array_key_exists("requestid", $_REQUEST) && ($_REQUEST["requestid"] == $id))
   {
    if ($type == "select") echo " selected=\"selected\"";
    if ($type == "radio") echo " checked=\"checked\"";
@@ -36,9 +36,9 @@ function gixlg_requestlist($request, $type)
   echo ">";
   echo $attribute["title"] ? $attribute["title"] : $attribute["command"];
   if ($type == "select") echo "</option>\n";
-  if ($type == "radio") echo "</input><br/>\n";
+  if ($type == "radio") echo "</div>\n";
  }
- echo "</{$type}>\n";
+ if ($type == "select") echo "</select>\n";
 }
 
 function gixlg_execsqlrequest($router, $request)
@@ -145,23 +145,18 @@ function gixlg_execsqlrequest($router, $request)
   }
  }
 
- $mid = mysql_connect($gixlg['db_host'], $gixlg['db_user'], $gixlg['db_password']);
- if (!$mid) {
-  printError("Could not connect: " . mysql_error() . ".");
+ $mid = mysqli_connect($gixlg['db_host'], $gixlg['db_user'], $gixlg['db_password'], $gixlg['db_database']);
+ if (mysqli_connect_errno()) {
+  printError("Could not connect: " . mysqli_connect_error());
   break;
  };
- $dbs = mysql_select_db($gixlg['db_database'], $mid);
- if (!$dbs) {
-  printError("Cannot use db: " . mysql_error() . ".");
-  break;
- }
 
   switch ($requestid) {
    case 10:
-    $res = mysql_query("SELECT * FROM `members` ORDER BY `type`,(neighbor+0),`neighbor`", $mid);
-    $nr = mysql_num_rows($res);
+    $res = mysqli_query($mid, "SELECT * FROM `members` ORDER BY `type`,(neighbor+0),`neighbor`");
+    $nr = mysqli_num_rows($res);
 ?>
-<table id="rounded-corner">
+<table class="table table-striped table-bordered table-hover table-condensed small">
 <thead>
 <tr>
 <th>Node</th>
@@ -185,17 +180,17 @@ function gixlg_execsqlrequest($router, $request)
 </tfoot>
 <tbody>
 <?php
-    while ($d = mysql_fetch_assoc($res)) {
+    while ($d = mysqli_fetch_assoc($res)) {
      $as_info_dns = dns_get_record("AS" . $d['asn'] . ".asn.cymru.com", DNS_TXT);
      list($as_info['as'], $as_info['country'], $as_info['rir'], $as_info['date'], $as_info['desc']) = explode("|", $as_info_dns[0]['txt']);
      $asinfo = explode(" ", $as_info['desc']);
 
      if ($d['type'] == '4') {
-      $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'", $mid);
+      $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'");
      } else {
-      $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'", $mid);
+      $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'");
      }
-     $d_node = mysql_fetch_assoc($res_node);
+     $d_node = mysqli_fetch_assoc($res_node);
 
      echo "<tr>";
      echo "<td>" . $d_node['vendor'] . " " . $d_node['model'] . "</td>";
@@ -232,18 +227,18 @@ function gixlg_execsqlrequest($router, $request)
     break;
    case 20:
     if ($ipnet == 1) {
-     $res = mysql_query("SELECT * FROM `prefixes` WHERE (`prefix`='$argument') ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`", $mid);
+     $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (`prefix`='$argument') ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`");
     } else {
      $int_ip = inet_ptoi($argument);
      if ($gixlg['ignore_default_routes']) {
-      $res = mysql_query("SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))) && (`prefix`!='::/0') and (`prefix`!='0.0.0.0/0')) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`", $mid);
+      $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))) && (`prefix`!='::/0') and (`prefix`!='0.0.0.0/0')) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`");
      } else {
-      $res = mysql_query("SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0)))) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`", $mid);
+      $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0)))) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`");
      }
     }
-    $nr = mysql_num_rows($res);
+    $nr = mysqli_num_rows($res);
 ?>
-<table id="rounded-corner">
+<table class="table table-striped table-bordered table-hover table-condensed small">
 <thead>
 <tr>
 <th>Node</th>
@@ -264,13 +259,13 @@ function gixlg_execsqlrequest($router, $request)
 </thead>
 <tfoot>
 <tr>
-<td colspan="<?php if ($gixlg['mode'] == 'rc') { echo "12"; } else { echo "8"; }; ?> ">Total number of prefixes <?php echo $nr; ?>
+<td colspan="<?php if ($gixlg['mode'] == 'rc') { echo "12"; } else { echo "8"; }; ?>">Total number of prefixes <?php echo $nr; ?>
 <?php
  if ($nr > 0) {
   if ($gixlg['flex_image_size']) {
-   echo "<br/><center><img src=\"./gixlg-map.php?prefix=" . $argument . "\" alt=\"gixlg-map\"/></center>";
+   echo "<br/><img src=\"gixlg-map.php?prefix=" . $argument . "\" alt=\"gixlg-map\"/>";
   } else {
-   echo "<br/><center><img width=\"1000\" src=\"./gixlg-map.php?prefix=" . $argument . "\" alt=\"gixlg-map\"/></center>";
+   echo "<br/><img width=\"1000\" src=\"gixlg-map.php?prefix=" . $argument . "\" alt=\"gixlg-map\"/>";
   }
  }
 ?>
@@ -279,33 +274,33 @@ function gixlg_execsqlrequest($router, $request)
 </tfoot>
 <tbody>
 <?php
-    while ($d = mysql_fetch_assoc($res)) {
+    while ($d = mysqli_fetch_assoc($res)) {
      if ($d['type'] == '4') {
-      $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'", $mid);
+      $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'");
      } else {
-      $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'", $mid);
+      $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'");
      }
-     $d_node = mysql_fetch_assoc($res_node);
+     $d_node = mysqli_fetch_assoc($res_node);
 
      $attr1="";
      $attr2="";
      if ($gixlg['mode'] == 'rc') {
       $ip_int = inet_ptoi($d['nexthop']);
-      $res_nexthop = mysql_query("SELECT * FROM `nexthops` WHERE (($ip_int>=`ip4_start` && $ip_int<=`ip4_end`) || ($ip_int>=`ip6_start` && $ip_int<=`ip6_end`))", $mid);
-      $d_nexthop = mysql_fetch_assoc($res_nexthop);
-      $res_member = mysql_query("SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'", $mid);
-      if (mysql_num_rows($res_member)==1) {
-       $d_member = mysql_fetch_assoc($res_member);
+      $res_nexthop = mysqli_query($mid, "SELECT * FROM `nexthops` WHERE (($ip_int>=`ip4_start` && $ip_int<=`ip4_end`) || ($ip_int>=`ip6_start` && $ip_int<=`ip6_end`))");
+      $d_nexthop = mysqli_fetch_assoc($res_nexthop);
+      $res_member = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+      if (mysqli_num_rows($res_member)==1) {
+       $d_member = mysqli_fetch_assoc($res_member);
        if (($d['neighbor']==$d['nexthop']) && ($d_member['asn']==$d['aspath'])) { $attr1="<b>"; $attr2="</b>"; }
       }
      } else {
-      $res_member = mysql_query("SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'", $mid);
-      if (mysql_num_rows($res_member)==1) {
-       $d_member = mysql_fetch_assoc($res_member);
+      $res_member = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+      if (mysqli_num_rows($res_member)==1) {
+       $d_member = mysqli_fetch_assoc($res_member);
        if ($d_member['asn']==$d['aspath']) { $attr1="<b>"; $attr2="</b>"; }
       }
      }
-     echo "<tr onmouseover=\"popup('Community: " . $d['community'] . "&lt;br/&gt;Extended community: " . $d['extended_community'] . "&lt;br/&gt;Origin: " . $d['origin'] . "&lt;br/&gt;Nexthop: " . $d['nexthop'] . "')\">";
+     echo "<tr onmouseover=\"nhpup.popup('Community: " . $d['community'] . "&lt;br/&gt;Extended community: " . $d['extended_community'] . "&lt;br/&gt;Origin: " . $d['origin'] . "&lt;br/&gt;Nexthop: " . $d['nexthop'] . "', {'class': 'pup', 'width': 700})\">";
      echo "<td>" . $attr1 . $d_node['vendor'] . " " . $d_node['model'] . $attr2 . "</td>";
      echo "<td>" . $attr1 . $d_node['location'] . $attr2 . "</td>";
      echo "<td>" . $attr1 . $d_node['type'] . $attr2 . "</td>";
@@ -326,14 +321,14 @@ function gixlg_execsqlrequest($router, $request)
     echo "</table>";
     break;
    case 30:
-    $res = mysql_query("SELECT * FROM `prefixes` WHERE (`aspath` LIKE '$argument') ORDER BY `type`,(prefix+0),prefix,LENGTH(aspath),(nexthop+0),nexthop", $mid);
-    $nr = mysql_num_rows($res);
+    $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (`aspath` LIKE '$argument') ORDER BY `type`,(prefix+0),prefix,LENGTH(aspath),(nexthop+0),nexthop");
+    $nr = mysqli_num_rows($res);
     if ($nr > 2000) {
      printError("Number of prefixes is greater then 2000.");
      return;
     }
 ?>
-<table id="rounded-corner">
+<table class="table table-striped table-bordered table-hover table-condensed small">
 <thead>
 <tr>
 <th>Node</th>
@@ -354,18 +349,18 @@ function gixlg_execsqlrequest($router, $request)
 </thead>
 <tfoot>
 <tr>
-<td colspan="<?php if ($gixlg['mode'] == 'rc') { echo "12"; } else { echo "8"; }; ?> ">Total number of prefixes <?php echo $nr; ?></td>
+<td colspan="<?php if ($gixlg['mode'] == 'rc') { echo "12"; } else { echo "8"; }; ?>">Total number of prefixes <?php echo $nr; ?></td>
 </tr>
 </tfoot>
 <tbody>
 <?php
-    while ($d = mysql_fetch_assoc($res)) {
+    while ($d = mysqli_fetch_assoc($res)) {
      if ($d['type'] == '4') {
-      $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'", $mid);
+      $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'");
      } else {
-      $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'", $mid);
+      $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'");
      }
-     $d_node = mysql_fetch_assoc($res_node);
+     $d_node = mysqli_fetch_assoc($res_node);
 
      $attr1="";
      $attr2="";
@@ -373,23 +368,23 @@ function gixlg_execsqlrequest($router, $request)
      $d_member = array();
      if ($gixlg['mode'] == 'rc') {
       $ip_int = inet_ptoi($d['nexthop']);
-      $res_nexthop = mysql_query("SELECT * FROM `nexthops` WHERE (($ip_int>=`ip4_start` && $ip_int<=`ip4_end`) || ($ip_int>=`ip6_start` && $ip_int<=`ip6_end`))", $mid);
-      if (mysql_num_rows($res_nexthop)==1) {
-       $d_nexthop = mysql_fetch_assoc($res_nexthop);
+      $res_nexthop = mysqli_query($mid, "SELECT * FROM `nexthops` WHERE (($ip_int>=`ip4_start` && $ip_int<=`ip4_end`) || ($ip_int>=`ip6_start` && $ip_int<=`ip6_end`))");
+      if (mysqli_num_rows($res_nexthop)==1) {
+       $d_nexthop = mysqli_fetch_assoc($res_nexthop);
       }
-      $res_member = mysql_query("SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'", $mid);
-      if (mysql_num_rows($res_member)==1) {
-       $d_member = mysql_fetch_assoc($res_member);
+      $res_member = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+      if (mysqli_num_rows($res_member)==1) {
+       $d_member = mysqli_fetch_assoc($res_member);
        if (($d['neighbor']==$d['nexthop']) && ($d_member['asn']==$d['aspath'])) { $attr1="<b>"; $attr2="</b>"; }
       }
      } else {
-      $res_member = mysql_query("SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'", $mid);
-      if (mysql_num_rows($res_member)==1) {
-       $d_member = mysql_fetch_assoc($res_member);
+      $res_member = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+      if (mysqli_num_rows($res_member)==1) {
+       $d_member = mysqli_fetch_assoc($res_member);
        if ($d_member['asn']==$d['aspath']) { $attr1="<b>"; $attr2="</b>"; }
       }
      }
-     echo "<tr onmouseover=\"popup('Community: " . $d['community'] . "&lt;br/&gt;Extended community: " . $d['extended_community'] . "&lt;br/&gt;Origin: " . $d['origin'] . "')\">";
+     echo "<tr onmouseover=\"nhpup.popup('Community: " . $d['community'] . "&lt;br/&gt;Extended community: " . $d['extended_community'] . "&lt;br/&gt;Origin: " . $d['origin'] . "', {'class': 'pup', 'width': 700})\">";
      echo "<td>" . $attr1 . $d_node['vendor'] . " " . $d_node['model'] . $attr2 . "</td>";
      echo "<td>" . $attr1 . $d_node['type'] . $attr2 . "</td>";
      echo "<td>" . $attr1 . $d_node['location'] . $attr2 . "</td>";
@@ -414,6 +409,6 @@ function gixlg_execsqlrequest($router, $request)
     break;
   }
 
- mysql_close($mid);
+ mysqli_close($mid);
 }
 ?>

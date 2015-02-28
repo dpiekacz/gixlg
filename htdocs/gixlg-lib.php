@@ -50,7 +50,7 @@ function time_diff($start, $end="NOW")
 
 function printError($message)
 {
- echo "<font color=\"red\"><code><strong>" . $message . "</strong></code></font><br>\n";
+ echo "<div class=\"alert alert-danger\" role=\"alert\"><strong>" . $message . "</strong></div>";
 }
 
 function safeOutput($string)

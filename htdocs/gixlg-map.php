@@ -18,43 +18,44 @@
  }
 
 // connect to db
- $mid = mysql_connect($gixlg['db_host'], $gixlg['db_user'], $gixlg['db_password']);
- if (!$mid) die();
- $dbs = mysql_select_db($gixlg['db_database'], $mid);
- if (!$dbs) die();
+ $mid = mysqli_connect($gixlg['db_host'], $gixlg['db_user'], $gixlg['db_password'], $gixlg['db_database']);
+ if (mysqli_connect_errno()) {
+  printError("Could not connect: " . mysqli_connect_error());
+  break;
+ };
 
  if ($ipnet == 1) {
-  $res = mysql_query("SELECT * FROM `prefixes` WHERE (`prefix`='$prefix')", $mid);
+  $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (`prefix`='$prefix')");
  } else {
   $int_ip = inet_ptoi($prefix);
-  $res = mysql_query("SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))))", $mid);
+  $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))))");
  }
 
  $graph = array('edgesFrom'=>array(),'nodes'=>array(),'attributes'=>array(),'clusters'=>array(),'subgraphs'=>array(),'bgcolor'=>'#e8edff');
  $gv = new Image_GraphViz(true, $graph);
- while ($d = mysql_fetch_assoc($res)) {
+ while ($d = mysqli_fetch_assoc($res)) {
 // for each record check if we know that neighbor
 // and also lookup for nexthop information
 
   if ($gixlg['mode'] == "rc") {
 // route collector mode
    if ($d['type'] == 4) {
-    $res_memb = mysql_query("SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'", $mid);
-    $d_memb = mysql_fetch_assoc($res_memb);
+    $res_memb = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+    $d_memb = mysqli_fetch_assoc($res_memb);
 
-    $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'", $mid);
-    $d_node = mysql_fetch_assoc($res_node);
+    $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'");
+    $d_node = mysqli_fetch_assoc($res_node);
 
     $ip_int = ip2long($d['nexthop']);
-    $res_next = mysql_query("SELECT * FROM `nexthops` WHERE ($ip_int>=`ip4_start` && $ip_int<=`ip4_end`)", $mid);
-    $d_next = mysql_fetch_assoc($res_next);
+    $res_next = mysqli_query($mid, "SELECT * FROM `nexthops` WHERE ($ip_int>=`ip4_start` && $ip_int<=`ip4_end`)");
+    $d_next = mysqli_fetch_assoc($res_next);
    } else {
-    $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'", $mid);
-    $d_node = mysql_fetch_assoc($res_node);
+    $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'");
+    $d_node = mysqli_fetch_assoc($res_node);
 
     $ip_int = inet_ptoi($d['nexthop']);
-    $res_next = mysql_query("SELECT * FROM `nexthops` WHERE ($ip_int>=`ip6_start` && $ip_int<=`ip6_end`)", $mid);
-    $d_next = mysql_fetch_assoc($res_next);
+    $res_next = mysqli_query($mid, "SELECT * FROM `nexthops` WHERE ($ip_int>=`ip6_start` && $ip_int<=`ip6_end`)");
+    $d_next = mysqli_fetch_assoc($res_next);
    }
 
    $gv->addEdge(array($d_node['vendor'] . " " . $d_node['model'] . " " . $d_node['type'] . " " .  $d_node['location'] => $d_next['node'] . " " . $d_next['type'] . " " . $d_next['location']));
@@ -81,23 +82,23 @@
   } else {
 // looking glass mode
    if ($d['type'] == 4) {
-    $res_memb = mysql_query("SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'", $mid);
-    $d_memb = mysql_fetch_assoc($res_memb);
+    $res_memb = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+    $d_memb = mysqli_fetch_assoc($res_memb);
 
-    $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'", $mid);
-    $d_node = mysql_fetch_assoc($res_node);
+    $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'");
+    $d_node = mysqli_fetch_assoc($res_node);
 
     $ip_int = ip2long($d['nexthop']);
-    $res_next = mysql_query("SELECT * FROM `nexthops` WHERE ($ip_int>=`ip4_start` && $ip_int<=`ip4_end`)", $mid);
+    $res_next = mysqli_query($mid, "SELECT * FROM `nexthops` WHERE ($ip_int>=`ip4_start` && $ip_int<=`ip4_end`)");
    } else {
-    $res_memb = mysql_query("SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'", $mid);
-    $d_memb = mysql_fetch_assoc($res_memb);
+    $res_memb = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+    $d_memb = mysqli_fetch_assoc($res_memb);
 
-    $res_node = mysql_query("SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'", $mid);
-    $d_node = mysql_fetch_assoc($res_node);
+    $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'");
+    $d_node = mysqli_fetch_assoc($res_node);
 
     $ip_int = inet_ptoi($d['nexthop']);
-    $res_next = mysql_query("SELECT * FROM `nexthops` WHERE ($ip_int>=`ip6_start` && $ip_int<=`ip6_end`)", $mid);
+    $res_next = mysqli_query($mid, "SELECT * FROM `nexthops` WHERE ($ip_int>=`ip6_start` && $ip_int<=`ip6_end`)");
    }
 
    $as_mem_e_tmp = "AS" . $d_memb['asn'];
@@ -106,8 +107,8 @@
    $asinfo_mem = explode(" ", $as_mem_info['desc']);
    $as_mem_e = $as_mem_e_tmp . " " . $asinfo_mem[1];
 
-   if (mysql_num_rows($res_next)>0) {
-    $d_next = mysql_fetch_assoc($res_next);
+   if (mysqli_num_rows($res_next)>0) {
+    $d_next = mysqli_fetch_assoc($res_next);
 
     $sp_pos = strpos($d['aspath'], " ");
     $as_path_tmp = substr($d['aspath'], $sp_pos+1, strlen($d['aspath']));
@@ -165,7 +166,7 @@
    }
   }
  }
- mysql_close($mid);
+ mysqli_close($mid);
 
 // Direct function call
  if ($gixlg['graphviz_mode']=='direct') {
