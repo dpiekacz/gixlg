@@ -349,6 +349,7 @@ def Collector_Worker():
                             prefix["originas"] = str(as_path_tmp[i])
                 else:
                     prefix["as-path"] = ""
+                    prefix["originas"] = prefix_json["neighbor"]["asn"]["peer"]
 
                 if Processing and "as-set" in prefix_message_update_attribute_keys:
                     as_set_tmp = prefix_json["neighbor"]["message"]["update"]["attribute"]["as-set"]
