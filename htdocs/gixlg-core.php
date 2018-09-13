@@ -148,7 +148,7 @@ function gixlg_execsqlrequest($router, $request)
  $mid = mysqli_connect($gixlg['db_host'], $gixlg['db_user'], $gixlg['db_password'], $gixlg['db_database']);
  if (mysqli_connect_errno()) {
   printError("Could not connect: " . mysqli_connect_error());
-  break;
+  return;
  };
 
   switch ($requestid) {
