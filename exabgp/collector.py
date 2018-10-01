@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
 Created by Daniel Piekacz on 2012-01-14.
 Last update on 2015-02-27.
@@ -13,7 +13,7 @@ import json
 import radix
 import MySQLdb
 import logging
-import Queue
+import queue
 from threading import Thread, RLock
 
 config = {}
@@ -121,7 +121,7 @@ def Stats_Worker():
 
                 time.sleep(config["stats_refresh"])
 
-        except MySQLdb.Error, e:
+        except MySQLdb.Error as e:
             if config["debug"]:
                 logging.exception("GIXLG: stats / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
             pass
@@ -771,12 +771,12 @@ def Collector_Worker():
                     if config["debug"]:
                         logging.info("GIXLG: collector / unknown ExaBGP update")
 
-        except Queue.Empty:
+        except queue.Empty:
             if config["debug"]:
                 logging.info("GIXLG: collector queue empty")
             pass
 
-        except MySQLdb.Error, e:
+        except MySQLdb.Error as e:
             if config["debug"]:
                 logging.exception("GIXLG: collector / MySQLdb exception" + str(e.args[0]) + " - " + str(e.args[1]))
                 if 'prefix' in globals():
@@ -822,7 +822,7 @@ if __name__ == "__main__":
                     mydb.close()
 
                 lock = RLock()
-                collector_queue = Queue.Queue(maxsize=config['collector_queue'])
+                collector_queue = queue.Queue(maxsize=config['collector_queue'])
                 if config["prefix_cache"]:
                     prefix_cache = radix.Radix()
                 Running = True
@@ -852,7 +852,7 @@ if __name__ == "__main__":
 
                     collector_queue.put(line, block=True)
 
-            except Queue.Full:
+            except queue.Full:
                 if config["debug"]:
                     logging.warning("GIXLG: collector queue full")
                 pass
@@ -870,6 +870,6 @@ if __name__ == "__main__":
                 pass
 
     else:
-        print "The code is not design to run as a standalone process and can be used only as `process parsed-route-backend` in ExaBGP."
-        print "an example: run %s exabgp [log file suffix]" % sys.argv[0]
+        print ("The code is not design to run as a standalone process and can be used only as `process parsed-route-backend` in ExaBGP.")
+        print ("an example: run %s exabgp [log file suffix]" % sys.argv[0])
         sys.exit(2)
