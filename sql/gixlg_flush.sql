@@ -1,3 +1,3 @@
 USE `gixlg`;
 TRUNCATE `prefixes`;
-UPDATE `members` SET `status`='0',`time`='0000-00-00 00:00:00',`lastup`='0000-00-00 00:00:00',`lastdown`='0000-00-00 00:00:00',`prefixes`='0',`updown`='0';
+UPDATE `members` SET `status`='0',`time`='1970-01-01 09:00:01',`lastup`='1970-01-01 09:00:01',`lastdown`='1970-01-01 09:00:01',`prefixes`='0',`updown`='0';

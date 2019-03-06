@@ -59,6 +59,9 @@ config["debug"] = False
 #
 Running = False
 
+# load from `members`
+members = {}
+
 # status | time | lastup | lastdown | prefixes | updown
 neighbors = {}
 
@@ -102,17 +105,18 @@ def Stats_Worker():
                     logging.info("GIXLG: cached prefixes: " + str(prefix_cache_size))
 
                 if config["mysql_enable"]:
-                    for i in neighbors.keys():
+                    for (i, j) in [ (i, j) for i in neighbors.keys() for j in neighbors[i].keys() ]:
                         cursor_stats.execute(
-                            "UPDATE members SET status=%s, time=%s, lastup=%s, lastdown=%s, prefixes=%s, updown=%s WHERE neighbor=%s",
+                            "UPDATE members SET status=%s, time=%s, lastup=%s, lastdown=%s, prefixes=%s, updown=%s WHERE neighbor=%s and type=%s",
                             (
-                                neighbors[i][0],
-                                neighbors[i][1],
-                                neighbors[i][2],
-                                neighbors[i][3],
-                                neighbors[i][4],
-                                neighbors[i][5],
-                                i
+                                neighbors[i][j][0],
+                                neighbors[i][j][1],
+                                neighbors[i][j][2],
+                                neighbors[i][j][3],
+                                neighbors[i][j][4],
+                                neighbors[i][j][5],
+                                i,
+                                j,
                             )
                         )
 
@@ -138,7 +142,7 @@ def Stats_Worker():
 
 
 def Collector_Worker():
-    global Running, neighbors, prefix_cache
+    global Running, members, neighbors, prefix_cache
 
     if config["debug"]:
         logging.info("GIXLG: collector / start")
@@ -193,10 +197,7 @@ def Collector_Worker():
                 if Processing and "update" in prefix_message_keys and "ip" in prefix_neighbor_keys:
                     prefix["neighbor"] = prefix_json["neighbor"]["ip"]
                     prefix_message_update_keys = prefix_json["neighbor"]["message"]["update"].keys()
-                    if "." in prefix["neighbor"]:
-                        prefix["ip_type"] = 4
-                    else:
-                        prefix["ip_type"] = 6
+                    # prefix["ip_type"] cannot be determined by neighbor's address :)
                 else:
                     Processing = False
 
@@ -212,6 +213,8 @@ def Collector_Worker():
                     prefix["state"] = "withdraw"
                     prefix_message_update_withdraw_keys = prefix_json["neighbor"]["message"]["update"]["withdraw"].keys()
                     prefix_inet = prefix_message_update_withdraw_keys[0]
+                    # prefix_inet is either "ipv4 unicast" or "ipv6 unicast"
+                    prefix["ip_type"] = int(prefix_inet[3])
                     prefix_message_update_withdraw_routes_keys = prefix_json["neighbor"]["message"]["update"]["withdraw"][prefix_inet].keys()
 
                     i = 0
@@ -230,6 +233,8 @@ def Collector_Worker():
                     prefix_message_update_announce_keys = prefix_json["neighbor"]["message"]["update"]["announce"].keys()
 
                     prefix_inet = prefix_message_update_announce_keys[0]
+                    # prefix_inet is either "ipv4 unicast" or "ipv6 unicast"
+                    prefix["ip_type"] = int(prefix_inet[3])
                     prefix_message_update_announce_nexthop_keys = prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet].keys()
                     if "null" in prefix_message_update_announce_nexthop_keys:
                         prefix["state"] = "unknown"
@@ -386,11 +391,25 @@ def Collector_Worker():
                         logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor)
 
                     if config["stats_delayed"]:
-                        with lock:
-                            if neighbor not in neighbors.keys():
-                                neighbors[neighbor] = [0, '0000-00-00 00:00:00', '0000-00-00 00:00:00', '0000-00-00 00:00:00', 0, 0]
-                            else:
-                                neighbors[neighbor] = [0, '0000-00-00 00:00:00', neighbors[neighbor][2], neighbors[neighbor][3], 0, neighbors[neighbor][5]]
+                        if neighbor in members.keys():
+                            with lock:
+                                if neighbor not in neighbors.keys():
+                                    neighbors[neighbor] = {}
+                                    for i in members[neighbor]:
+                                        neighbors[neighbor][i] = [0,
+                                                                  '1970-01-01 09:00:01',
+                                                                  '1970-01-01 09:00:01',
+                                                                  '1970-01-01 09:00:01',
+                                                                  0,
+                                                                  0,]
+                                else:
+                                    for i in members[neighbor]:
+                                        neighbors[neighbor][i] = [0,
+                                                                  '1970-01-01 09:00:01',
+                                                                  neighbors[neighbor][i][2],
+                                                                  neighbors[neighbor][i][3],
+                                                                  0,
+                                                                  neighbors[neighbor][i][5],]
 
                 elif prefix["state"] == "up":
                     if config["debug"]:
@@ -399,21 +418,35 @@ def Collector_Worker():
                     if config["mysql_enable"]:
                         cursor.execute(
                             "DELETE FROM prefixes WHERE (neighbor = %s)",
-                            [neighbor]
+                            (neighbor,)
                         )
                         if config["stats_delayed"]:
                             with lock:
                                 if neighbor not in neighbors.keys():
-                                    neighbors[neighbor] = [1, '0000-00-00 00:00:00', prefix["time"], '0000-00-00 00:00:00', 0, 1]
+                                    neighbors[neighbor] = {}
+                                    for i in members[neighbor]:
+                                        neighbors[neighbor][i] = [1,
+                                                                  '1970-01-01 09:00:01',
+                                                                  prefix["time"],
+                                                                  '1970-01-01 09:00:01',
+                                                                  0,
+                                                                  1,]
                                 else:
-                                    neighbors[neighbor] = [1, '0000-00-00 00:00:00', prefix["time"], neighbors[neighbor][3], 0, neighbors[neighbor][5] + 1]
+                                    for i in members[neighbor]:
+                                        neighbors[neighbor][i] = [1,
+                                                                  '1970-01-01 09:00:01',
+                                                                  prefix["time"],
+                                                                  neighbors[neighbor][i][3],
+                                                                  0,
+                                                                  neighbors[neighbor][i][5] + 1,]
+
                         else:
                             cursor.execute(
-                                "UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=1,updown=updown+1,lastup=%s WHERE neighbor=%s",
-                                [
+                                "UPDATE members SET time='1970-01-01 09:00:01',prefixes=0,status=1,updown=updown+1,lastup=%s WHERE neighbor=%s",
+                                (
                                     prefix["time"],
-                                    neighbor
-                                ]
+                                    neighbor,
+                                )
                             )
 
                 elif prefix["state"] == "down":
@@ -423,21 +456,35 @@ def Collector_Worker():
                     if config["mysql_enable"]:
                         cursor.execute(
                             "DELETE FROM prefixes WHERE (neighbor = %s)",
-                            (neighbor)
+                            (neighbor,)
                         )
 
                         if config["stats_delayed"]:
                             with lock:
                                 if neighbor not in neighbors.keys():
-                                    neighbors[neighbor] = [0, '0000-00-00 00:00:00', '0000-00-00 00:00:00', prefix["time"], 0, 1]
+                                    neighbors[neighbor] = {}
+                                    for i in members[neighbor]:
+                                        neighbors[neighbor][i] = [0,
+                                                                  '1970-01-01 09:00:01',
+                                                                  '1970-01-01 09:00:01',
+                                                                  prefix["time"],
+                                                                  0,
+                                                                  1,]
                                 else:
-                                    neighbors[neighbor] = [0, '0000-00-00 00:00:00', neighbors[neighbor][2], prefix["time"], 0, neighbors[neighbor][5] + 1]
+                                    for i in members[neighbor]:
+                                        neighbors[neighbor][i] = [0,
+                                                                  '1970-01-01 09:00:01',
+                                                                  neighbors[neighbor][i][2],
+                                                                  prefix["time"],
+                                                                  0,
+                                                                  neighbors[neighbor][i][5] + 1,]
+
                         else:
                             cursor.execute(
-                                "UPDATE members SET time='0000-00-00 00:00:00',prefixes=0,status=0,updown=updown+1,lastdown=%s WHERE neighbor=%s",
+                                "UPDATE members SET time='1970-01-01 09:00:01',prefixes=0,status=0,updown=updown+1,lastdown=%s WHERE neighbor=%s",
                                 (
                                     prefix["time"],
-                                    neighbor
+                                    neighbor,
                                 )
                             )
 
@@ -523,13 +570,19 @@ def Collector_Worker():
                                     )
                                     if config["stats_delayed"]:
                                         with lock:
-                                            neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4], neighbors[neighbor][5]]
+                                            neighbors[neighbor][prefix["ip_type"]] = [neighbors[neighbor][prefix["ip_type"]][0],
+                                                                                      prefix["time"],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][2],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][3],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][4],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][5],]
                                     else:
                                         cursor.execute(
-                                            "UPDATE members SET time=%s WHERE neighbor=%s",
+                                            "UPDATE members SET time=%s WHERE neighbor=%s and type=%s",
                                             (
                                                 prefix["time"],
-                                                neighbor
+                                                neighbor,
+                                                prefix["ip_type"],
                                             )
                                         )
                             else:
@@ -572,13 +625,19 @@ def Collector_Worker():
 
                                     if config["stats_delayed"]:
                                         with lock:
-                                            neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4] + 1, neighbors[neighbor][5]]
+                                            neighbors[neighbor][prefix["ip_type"]] = [neighbors[neighbor][prefix["ip_type"]][0],
+                                                                                      prefix["time"],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][2],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][3],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][4] + 1,
+                                                                                      neighbors[neighbor][prefix["ip_type"]][5],]
                                     else:
                                         cursor.execute(
-                                            "UPDATE members SET prefixes=prefixes+1,time=%s WHERE neighbor=%s",
+                                            "UPDATE members SET prefixes=prefixes+1,time=%s WHERE neighbor=%s and type=%s",
                                             (
                                                 prefix["time"],
-                                                neighbor
+                                                neighbor,
+                                                prefix["ip_type"],
                                             )
                                         )
                         else:
@@ -627,13 +686,19 @@ def Collector_Worker():
                                     )
                                     if config["stats_delayed"]:
                                         with lock:
-                                            neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4] + 1, neighbors[neighbor][5]]
+                                            neighbors[neighbor][prefix["ip_type"]] = [neighbors[neighbor][prefix["ip_type"]][0],
+                                                                                      prefix["time"],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][2],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][3],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][4] + 1,
+                                                                                      neighbors[neighbor][prefix["ip_type"]][5],]
                                     else:
                                         cursor.execute(
-                                            "UPDATE members SET prefixes=prefixes+1,time=%s WHERE neighbor=%s",
+                                            "UPDATE members SET prefixes=prefixes+1,time=%s WHERE neighbor=%s and type=%s",
                                             (
                                                 prefix["time"],
-                                                neighbor
+                                                neighbor,
+                                                prefix["ip_type"],
                                             )
                                         )
                                 else:
@@ -653,13 +718,19 @@ def Collector_Worker():
                                     )
                                     if config["stats_delayed"]:
                                         with lock:
-                                            neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4], neighbors[neighbor][5]]
+                                            neighbors[neighbor][prefix["ip_type"]] = [neighbors[neighbor][prefix["ip_type"]][0],
+                                                                                      prefix["time"],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][2],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][3],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][4],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][5],]
                                     else:
                                         cursor.execute(
-                                            "UPDATE members SET time=%s WHERE neighbor=%s",
+                                            "UPDATE members SET time=%s WHERE neighbor=%s and type=%s",
                                             (
                                                 prefix["time"],
-                                                neighbor
+                                                neighbor,
+                                                prefix["ip_type"],
                                             )
                                         )
 
@@ -707,13 +778,19 @@ def Collector_Worker():
                                     )
                                     if config["stats_delayed"]:
                                         with lock:
-                                            neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4] - 1, neighbors[neighbor][5]]
+                                            neighbors[neighbor][prefix["ip_type"]] = [neighbors[neighbor][prefix["ip_type"]][0],
+                                                                                      prefix["time"],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][2],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][3],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][4] - 1,
+                                                                                      neighbors[neighbor][prefix["ip_type"]][5],]
                                     else:
                                         cursor.execute(
-                                            "UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s",
+                                            "UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s and type=%s",
                                             (
                                                 prefix["time"],
-                                                neighbor
+                                                neighbor,
+                                                prefix["ip_type"],
                                             )
                                         )
                             else:
@@ -731,13 +808,19 @@ def Collector_Worker():
                                 if cursor.rowcount == 0:
                                     if config["stats_delayed"]:
                                         with lock:
-                                            neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4], neighbors[neighbor][5]]
+                                            neighbors[neighbor][prefix["ip_type"]] = [neighbors[neighbor][prefix["ip_type"]][0],
+                                                                                      prefix["time"],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][2],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][3],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][4],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][5],]
                                     else:
                                         cursor.execute(
-                                            "UPDATE members SET time=%s WHERE neighbor=%s",
+                                            "UPDATE members SET time=%s WHERE neighbor=%s and type=%s",
                                             (
                                                 prefix["time"],
-                                                neighbor
+                                                neighbor,
+                                                prefix["ip_type"],
                                             )
                                         )
                                 else:
@@ -751,13 +834,19 @@ def Collector_Worker():
 
                                     if config["stats_delayed"]:
                                         with lock:
-                                            neighbors[neighbor] = [neighbors[neighbor][0], prefix["time"], neighbors[neighbor][2], neighbors[neighbor][3], neighbors[neighbor][4] - 1, neighbors[neighbor][5]]
+                                            neighbors[neighbor][prefix["ip_type"]] = [neighbors[neighbor][prefix["ip_type"]][0],
+                                                                                      prefix["time"],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][2],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][3],
+                                                                                      neighbors[neighbor][prefix["ip_type"]][4] - 1,
+                                                                                      neighbors[neighbor][prefix["ip_type"]][5],]
                                     else:
                                         cursor.execute(
-                                            "UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s",
+                                            "UPDATE members SET prefixes=prefixes-1,time=%s WHERE neighbor=%s and type=%s",
                                             (
                                                 prefix["time"],
-                                                neighbor
+                                                neighbor,
+                                                prefix["ip_type"],
                                             )
                                         )
 
@@ -808,16 +897,24 @@ if __name__ == "__main__":
 
                     logging.info("GIXLG: main / start")
 
-                if config["mysql_enable"] and config["mysql_truncate"]:
+                if config["mysql_enable"]:
                     mydb = MySQLdb.connect(host=config["mysql_host"], db=config["mysql_db"], user=config["mysql_user"], passwd=config["mysql_pass"], unix_socket=config["mysql_sock"], connect_timeout=config["mysql_timeout"])
                     cursor = mydb.cursor()
-                    cursor.execute("TRUNCATE prefixes")
                     cursor.execute(
-                        """\
-                        UPDATE `members` SET `status`='0',`time`='0000-00-00 00:00:00',
-                        `lastup`='0000-00-00 00:00:00',`lastdown`='0000-00-00 00:00:00',
-                        `prefixes`='0',`updown`='0'"""
-                    )
+                        "SELECT neighbor, type FROM members"
+                        )
+                    for row in cursor:
+                        if row[0] not in members.keys():
+                            members[row[0]] = []
+                        members[row[0]].append(row[1])
+                    if config["mysql_truncate"]:
+                        cursor.execute("TRUNCATE prefixes")
+                        cursor.execute(
+                            """\
+                            UPDATE `members` SET `status`='0',`time`='1970-01-01 09:00:01',
+                            `lastup`='1970-01-01 09:00:01',`lastdown`='1970-01-01 09:00:01',
+                            `prefixes`='0',`updown`='0'"""
+                        )
                     cursor.close()
                     mydb.close()
 

@@ -28,7 +28,7 @@
   $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (`prefix`='$prefix')");
  } else {
   $int_ip = inet_ptoi($prefix);
-  $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))))");
+  $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRINTERSECTS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))))");
  }
 
  $graph = array('edgesFrom'=>array(),'nodes'=>array(),'attributes'=>array(),'clusters'=>array(),'subgraphs'=>array(),'bgcolor'=>'#ffffff');
@@ -40,9 +40,6 @@
   if ($gixlg['mode'] == "rc") {
 // route collector mode
    if ($d['type'] == 4) {
-    $res_memb = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
-    $d_memb = mysqli_fetch_assoc($res_memb);
-
     $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'");
     $d_node = mysqli_fetch_assoc($res_node);
 
@@ -61,11 +58,11 @@
    $gv->addEdge(array($d_node['vendor'] . " " . $d_node['model'] . " " . $d_node['type'] . " " .  $d_node['location'] => $d_next['node'] . " " . $d_next['type'] . " " . $d_next['location']));
 
    if ($d_next['type'] != "core") {
-    $sp_pos = strpos($d['aspath'], " ");
-    if (is_int($sp_pos)) {
-     $as_path_tmp = substr($d['aspath'], $sp_pos+1, strlen($d['aspath']));
-     $as_path = explode(" ", $as_path_tmp);
-
+    $as_path = explode(" ", $d['aspath']);
+    if ($as_path && $as_path[0] == $d_next['asn']) {
+     array_shift($as_path);
+    }
+    if ($as_path) {
      $as_s = $d_next['node'] . " " . $d_next['type'] . " " . $d_next['location'];
      foreach ($as_path as &$as) {
       $as_e_tmp = "AS" . $as;
@@ -82,7 +79,7 @@
   } else {
 // looking glass mode
    if ($d['type'] == 4) {
-    $res_memb = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+    $res_memb = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "' AND `type` = 4");
     $d_memb = mysqli_fetch_assoc($res_memb);
 
     $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip4`='" . $d['neighbor'] . "'");
@@ -91,7 +88,7 @@
     $ip_int = ip2long($d['nexthop']);
     $res_next = mysqli_query($mid, "SELECT * FROM `nexthops` WHERE ($ip_int>=`ip4_start` && $ip_int<=`ip4_end`)");
    } else {
-    $res_memb = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "'");
+    $res_memb = mysqli_query($mid, "SELECT * FROM `members` WHERE `neighbor`='" . $d['neighbor'] . "' AND `type` = 6");
     $d_memb = mysqli_fetch_assoc($res_memb);
 
     $res_node = mysqli_query($mid, "SELECT * FROM `nodes` WHERE `ip6`='" . $d['neighbor'] . "'");
@@ -110,9 +107,10 @@
    if (mysqli_num_rows($res_next)>0) {
     $d_next = mysqli_fetch_assoc($res_next);
 
-    $sp_pos = strpos($d['aspath'], " ");
-    $as_path_tmp = substr($d['aspath'], $sp_pos+1, strlen($d['aspath']));
-    $as_path = explode(" ", $as_path_tmp);
+    $as_path = explode(" ", $d['aspath']);
+    if ($as_path && $as_path[0] == $d_next['asn']) {
+     array_shift($as_path);
+    }
 
 // IX or Normal graph mode
     if ($gixlg['ix_mode']) {
@@ -129,7 +127,7 @@
 //    $gv->addEdge(array($d_next['node'] . " " . $d_next['type'] => $d_node['vendor']));
 //    $as_s = $d_node['vendor'];
 
-    if (is_int($sp_pos)) {
+    if ($as_path) {
      foreach ($as_path as &$as) {
       $as_e_tmp = "AS" . $as;
       $as_info_dns = dns_get_record($as_e_tmp . ".asn.cymru.com", DNS_TXT);
@@ -144,10 +142,11 @@
      $gv->addNode(array($as_s));
     }
    } else {
-    $sp_pos = strpos($d['aspath'], " ");
-    if (is_int($sp_pos)) {
-     $as_path_tmp = substr($d['aspath'], $sp_pos+1, strlen($d['aspath']));
-     $as_path = explode(" ", $as_path_tmp);
+    $as_path = explode(" ", $d['aspath']);
+    if ($as_path && $as_path[0] == $d_next['asn']) {
+     array_shift($as_path);
+    }
+    if ($as_path) {
 
      $as_s = $as_mem_e;
      // $as_s = $d_node['vendor'];
