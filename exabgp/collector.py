@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 """
 Created by Daniel Piekacz on 2012-01-14.
 Last update on 2015-02-27.
@@ -13,8 +13,15 @@ import json
 import radix
 import MySQLdb
 import logging
-import queue
+if sys.version_info[0] == 3:
+    import queue
+else:
+    import Queue as queue
 from threading import Thread, RLock
+
+from exabgp import version as ExabgpVersion
+exabgp_version = int(ExabgpVersion.version.split(".")[0])
+assert exabgp_version in [3, 4, ]
 
 config = {}
 
@@ -72,13 +79,16 @@ IPversion = {
 
 
 def IP2int(ip):
-    packed = socket.inet_pton(IPversion['.' in ip], ip)
-    value = 0L
-    for byte in packed:
-        value <<= 8
-        value += ord(byte)
-    return value
-
+    if sys.version_info[0] == 3:
+        import ipaddress
+        return int(ipaddress.ip_address(ip))
+    else:
+        packed = socket.inet_pton(IPversion['.' in ip], ip)
+        value = 0
+        for byte in packed:
+            value <<= 8
+            value += ord(byte)
+        return value
 
 def Stats_Worker():
     global Running, neighbors, prefix_cache
@@ -142,7 +152,7 @@ def Stats_Worker():
 
 
 def Collector_Worker():
-    global Running, members, neighbors, prefix_cache
+    global Running, members, neighbors, exabgp_version, prefix_cache
 
     if config["debug"]:
         logging.info("GIXLG: collector / start")
@@ -160,7 +170,7 @@ def Collector_Worker():
                     logging.info("EXABGP: " + line)
 
                 prefix_json = json.loads(line)
-                prefix_keys = prefix_json.keys()
+                prefix_keys = list(prefix_json)
                 prefix = {}
                 Processing = True
 
@@ -171,15 +181,16 @@ def Collector_Worker():
                     Processing = False
                 else:
                     prefix["time"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+                    neighbor_address_key = exabgp_version == 3 and "ip" or "address"
 
                 # Check if this is process, neighbor status change or a prefix update.
                 if Processing and "neighbor" in prefix_keys:
-                    prefix_neighbor_keys = prefix_json["neighbor"].keys()
+                    prefix_neighbor_keys = list(prefix_json["neighbor"])
                     if "type" in prefix_keys and prefix_json["type"] == "state" and "state" in prefix_neighbor_keys:
                         prefix["state"] = prefix_json["neighbor"]["state"]
                     else:
                         prefix["state"] = prefix_json["type"]
-                    prefix["neighbor"] = prefix_json["neighbor"]["ip"]
+                    prefix["neighbor"] = prefix_json["neighbor"][neighbor_address_key]
                 elif Processing and prefix_json["type"] == "notification" and "notification" in prefix_keys:
                     prefix["state"] = prefix_json["notification"]
                     Processing = False
@@ -189,14 +200,14 @@ def Collector_Worker():
                     Processing = False
 
                 if Processing and "message" in prefix_neighbor_keys:
-                    prefix_message_keys = prefix_json["neighbor"]["message"].keys()
+                    prefix_message_keys = list(prefix_json["neighbor"]["message"])
                 else:
                     Processing = False
 
                 # Prefix update.
-                if Processing and "update" in prefix_message_keys and "ip" in prefix_neighbor_keys:
-                    prefix["neighbor"] = prefix_json["neighbor"]["ip"]
-                    prefix_message_update_keys = prefix_json["neighbor"]["message"]["update"].keys()
+                if Processing and "update" in prefix_message_keys and neighbor_address_key in prefix_neighbor_keys:
+                    prefix["neighbor"] = prefix_json["neighbor"][neighbor_address_key]
+                    prefix_message_update_keys = list(prefix_json["neighbor"]["message"]["update"])
                     # prefix["ip_type"] cannot be determined by neighbor's address :)
                 else:
                     Processing = False
@@ -211,14 +222,15 @@ def Collector_Worker():
                 # Prefix withdrawal.
                 if Processing and "withdraw" in prefix_message_update_keys:
                     prefix["state"] = "withdraw"
-                    prefix_message_update_withdraw_keys = prefix_json["neighbor"]["message"]["update"]["withdraw"].keys()
+                    prefix_message_update_withdraw_keys = list(prefix_json["neighbor"]["message"]["update"]["withdraw"])
                     prefix_inet = prefix_message_update_withdraw_keys[0]
                     # prefix_inet is either "ipv4 unicast" or "ipv6 unicast"
                     prefix["ip_type"] = int(prefix_inet[3])
-                    prefix_message_update_withdraw_routes_keys = prefix_json["neighbor"]["message"]["update"]["withdraw"][prefix_inet].keys()
+                    prefix_message_update_withdraw_routes_keys = list(prefix_json["neighbor"]["message"]["update"]["withdraw"][prefix_inet])
 
                     i = 0
-                    for route in prefix_message_update_withdraw_routes_keys:
+                    for _route in prefix_message_update_withdraw_routes_keys:
+                        route = exabgp_version == 3 and _route or _route["nlri"]
                         prefix["route"][i] = route
                         x = route.find("/")
                         prefix["subnet"][i] = int(route[x + 1:])
@@ -230,21 +242,22 @@ def Collector_Worker():
                 # Prefix announcement.
                 elif Processing and "announce" in prefix_message_update_keys:
                     prefix["state"] = "announce"
-                    prefix_message_update_announce_keys = prefix_json["neighbor"]["message"]["update"]["announce"].keys()
+                    prefix_message_update_announce_keys = list(prefix_json["neighbor"]["message"]["update"]["announce"])
 
                     prefix_inet = prefix_message_update_announce_keys[0]
                     # prefix_inet is either "ipv4 unicast" or "ipv6 unicast"
                     prefix["ip_type"] = int(prefix_inet[3])
-                    prefix_message_update_announce_nexthop_keys = prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet].keys()
+                    prefix_message_update_announce_nexthop_keys = list(prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet])
                     if "null" in prefix_message_update_announce_nexthop_keys:
                         prefix["state"] = "unknown"
                         Processing = False
                     else:
                         prefix["next-hop"] = prefix_message_update_announce_nexthop_keys[0]
-                        prefix_message_update_announce_routes_key = prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet][prefix["next-hop"]].keys()
+                        prefix_message_update_announce_routes_key = list(prefix_json["neighbor"]["message"]["update"]["announce"][prefix_inet][prefix["next-hop"]])
 
                         i = 0
-                        for route in prefix_message_update_announce_routes_key:
+                        for _route in prefix_message_update_announce_routes_key:
+                            route = exabgp_version == 3 and _route or _route["nlri"]
                             prefix["route"][i] = route
                             x = route.find("/")
                             prefix["subnet"][i] = int(route[x + 1:])
@@ -265,7 +278,7 @@ def Collector_Worker():
                         Processing = False
 
                 if Processing and "attribute" in prefix_message_update_keys:
-                    prefix_message_update_attribute_keys = prefix_json["neighbor"]["message"]["update"]["attribute"].keys()
+                    prefix_message_update_attribute_keys = list(prefix_json["neighbor"]["message"]["update"]["attribute"])
                 else:
                     Processing = False
 
@@ -384,7 +397,7 @@ def Collector_Worker():
                     mydb.ping(True)
 
                 if prefix["state"] != "shutdown" and prefix["state"] != "unknown":
-                    neighbor = prefix["neighbor"]
+                    neighbor = exabgp_version == 3 and prefix["neighbor"] or prefix["neighbor"]["peer"]
 
                 if prefix["state"] == "connected":
                     if config["debug"]:
@@ -451,7 +464,7 @@ def Collector_Worker():
 
                 elif prefix["state"] == "down":
                     if config["debug"]:
-                        logging.info("GIXLG: " + prefix["state"] + ", neighbor: " + neighbor)
+                        logging.info("GIXLG: {}, neighbor: {}".format(prefix["state"], neighbor, ))
 
                     if config["mysql_enable"]:
                         cursor.execute(
@@ -491,7 +504,7 @@ def Collector_Worker():
                 elif prefix["state"] == "announce":
                     if config["debug"]:
                         logging.info(
-                            "GIXLG: " + prefix["state"] + ", neighbor: " + neighbor +
+                            "GIXLG: " + prefix["state"] + ", neighbor: " + repr(neighbor) +
                             ", family: inet" + str(prefix["ip_type"]) +
                             ", origin: " + str(prefix["origin"]) +
                             ", next-hop: " + str(prefix["next-hop"]) +
