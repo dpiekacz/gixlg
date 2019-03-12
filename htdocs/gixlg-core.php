@@ -231,9 +231,9 @@ function gixlg_execsqlrequest($router, $request)
     } else {
      $int_ip = inet_ptoi($argument);
      if ($gixlg['ignore_default_routes']) {
-      $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))) && (`prefix`!='::/0') and (`prefix`!='0.0.0.0/0')) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`");
+      $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRINTERSECTS(ip_poly, POINTFROMWKB(POINT($int_ip, 0))) && (`prefix`!='::/0') and (`prefix`!='0.0.0.0/0')) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`");
      } else {
-      $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRCONTAINS(ip_poly, POINTFROMWKB(POINT($int_ip, 0)))) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`");
+      $res = mysqli_query($mid, "SELECT * FROM `prefixes` WHERE (MBRINTERSECTS(ip_poly, POINTFROMWKB(POINT($int_ip, 0)))) ORDER BY LENGTH(aspath),`neighbor`,(neighbor+0),`neighbor`");
      }
     }
     $nr = mysqli_num_rows($res);
